@@ -12,9 +12,11 @@ EMBEDDING_MODEL_DEFAULT = "snunlp/KR-SBERT-V40K-klueNLI-augSTS"
 COLLECTION_NAME = "vault_decisions"
 
 INDEX_PATTERNS = [
-    "01 Notes/Decision - *.md",
+    "00 Inbox/*.md",
     "01 Notes/*.md",
-    "02 Maps/MOC - *.md",
+    "02 Maps/*.md",
+    "03 Sources/*.md",
+    "99 Archive/**/*.md",
 ]
 
 MAX_RESULTS_DEFAULT = 5

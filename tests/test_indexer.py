@@ -65,20 +65,42 @@ def test_collect_vault_files():
     from indexer import collect_vault_files
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        inbox_dir = Path(tmpdir) / "00 Inbox"
+        inbox_dir.mkdir()
+        (inbox_dir / "Payment MSA.md").write_text("# Payment MSA\n\ncontent")
+
         notes_dir = Path(tmpdir) / "01 Notes"
         notes_dir.mkdir()
         (notes_dir / "Decision - Test.md").write_text(SAMPLE_DECISION)
         (notes_dir / "Regular Note.md").write_text(SAMPLE_NOTE)
+
         maps_dir = Path(tmpdir) / "02 Maps"
         maps_dir.mkdir()
         (maps_dir / "MOC - Test.md").write_text("# MOC\n\nlinks")
 
+        sources_dir = Path(tmpdir) / "03 Sources"
+        sources_dir.mkdir()
+        (sources_dir / "Reference A.md").write_text("# Ref\n\nsource")
+
+        archive_dir = Path(tmpdir) / "99 Archive" / "2026"
+        archive_dir.mkdir(parents=True)
+        (archive_dir / "Old Analysis.md").write_text("# Old\n\narchived")
+
+        # templates/ should NOT be indexed
+        templates_dir = Path(tmpdir) / "templates"
+        templates_dir.mkdir()
+        (templates_dir / "Template.md").write_text("# Template\n\nskip")
+
         files = collect_vault_files(Path(tmpdir))
-        assert len(files) == 3
+        assert len(files) == 6
         names = [f.name for f in files]
+        assert "Payment MSA.md" in names
         assert "Decision - Test.md" in names
         assert "Regular Note.md" in names
         assert "MOC - Test.md" in names
+        assert "Reference A.md" in names
+        assert "Old Analysis.md" in names
+        assert "Template.md" not in names
 
 
 def test_prepare_documents():
