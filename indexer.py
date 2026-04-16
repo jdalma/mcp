@@ -90,8 +90,12 @@ def prepare_document(
 def build_index(
     collection,
     vault_path: Path | None = None,
+    force: bool = False,
 ) -> int:
     """vault 파일을 파싱하여 ChromaDB collection에 인덱싱한다.
+
+    Args:
+        force: True면 전체 리빌드, False면 증분 업데이트
 
     Returns:
         인덱싱된 문서 수.
@@ -102,11 +106,54 @@ def build_index(
         logger.warning("No vault files found to index.")
         return 0
 
+    if force:
+        # 전체 리빌드: 기존 인덱스 삭제
+        existing = collection.get()
+        if existing["ids"]:
+            collection.delete(ids=existing["ids"])
+
+    # 현재 파일의 mtime 수집
+    current_files: dict[str, str] = {}  # relative_path -> mtime_str
+    for file_path in files:
+        try:
+            mtime = file_path.stat().st_mtime
+            rel = str(file_path.relative_to(vault))
+            current_files[rel] = str(mtime)
+        except Exception:
+            continue
+
+    if not force:
+        # 기존 인덱스에서 mtime 비교
+        existing = collection.get(include=["metadatas"])
+        existing_mtimes: dict[str, str] = {}
+        for doc_id, meta in zip(existing["ids"], existing["metadatas"]):
+            existing_mtimes[doc_id] = meta.get("mtime", "")
+
+        # 삭제된 파일 제거
+        deleted = set(existing_mtimes.keys()) - set(current_files.keys())
+        if deleted:
+            collection.delete(ids=list(deleted))
+
+        # 변경/추가된 파일만 필터링
+        files_to_index = []
+        for file_path in files:
+            rel = str(file_path.relative_to(vault))
+            current_mtime = current_files.get(rel, "")
+            if rel not in existing_mtimes or existing_mtimes[rel] != current_mtime:
+                files_to_index.append(file_path)
+
+        if not files_to_index and not deleted:
+            logger.info("Index is up-to-date. No changes detected.")
+            return collection.count()
+    else:
+        files_to_index = files
+
+    # 인덱싱
     ids: list[str] = []
     documents: list[str] = []
     metadatas: list[dict] = []
 
-    for file_path in files:
+    for file_path in files_to_index:
         try:
             text = file_path.read_text(encoding="utf-8")
         except Exception as e:
@@ -115,15 +162,14 @@ def build_index(
 
         meta, body = parse_markdown(text)
         doc = prepare_document(file_path, meta, body, vault_path=vault)
+        rel = doc["id"]
+        doc["metadata"]["mtime"] = current_files.get(rel, "")
         ids.append(doc["id"])
         documents.append(doc["document"])
         metadatas.append(doc["metadata"])
 
-    # 기존 인덱스 초기화 후 재구축 (MVP: 전체 리빌드)
-    existing = collection.get()
-    if existing["ids"]:
-        collection.delete(ids=existing["ids"])
+    if ids:
+        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
-    collection.add(ids=ids, documents=documents, metadatas=metadatas)
-    logger.info("Indexed %d documents.", len(ids))
-    return len(ids)
+    logger.info("Indexed %d documents (%d updated).", collection.count(), len(ids))
+    return collection.count()

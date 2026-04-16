@@ -113,9 +113,13 @@ async def read_decision(file_name: str) -> str:
 
 
 @mcp.tool()
-async def reindex() -> str:
-    """vault 파일이 변경된 후 embedding 인덱스를 재구축한다."""
-    count = build_index(_collection)
+async def reindex(force: bool = False) -> str:
+    """vault 파일이 변경된 후 embedding 인덱스를 재구축한다.
+
+    Args:
+        force: True면 전체 리빌드, False면 증분 업데이트
+    """
+    count = build_index(_collection, force=force)
     return f"Reindex complete. {count} documents indexed."
 
 

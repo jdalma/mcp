@@ -116,3 +116,63 @@ def test_prepare_documents():
     assert doc["id"] == "01 Notes/Decision - Test.md"
     assert doc["metadata"]["type"] == "decision"
     assert "Option A를 선택한다" in doc["document"]
+
+
+def test_incremental_index():
+    """변경되지 않은 파일은 재인덱싱하지 않는 증분 인덱싱 테스트."""
+    import time
+
+    import chromadb
+
+    from indexer import build_index
+
+    client = chromadb.Client()
+    collection = client.create_collection("test_incremental")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault = Path(tmpdir)
+        notes = vault / "01 Notes"
+        notes.mkdir()
+        (notes / "Decision - A.md").write_text(SAMPLE_DECISION)
+
+        # 첫 인덱싱 (force)
+        count1 = build_index(collection, vault_path=vault, force=True)
+        assert count1 == 1
+
+        # 변경 없이 증분 인덱싱 — 카운트 동일
+        count2 = build_index(collection, vault_path=vault, force=False)
+        assert count2 == 1
+
+        # 파일 추가 후 증분 인덱싱
+        time.sleep(0.05)  # mtime 차이 보장
+        (notes / "Note B.md").write_text(SAMPLE_NOTE)
+        count3 = build_index(collection, vault_path=vault, force=False)
+        assert count3 == 2
+
+
+def test_incremental_index_deletes_removed_files():
+    """삭제된 파일이 인덱스에서 제거되는지 테스트."""
+    import chromadb
+
+    from indexer import build_index
+
+    client = chromadb.Client()
+    collection = client.create_collection("test_incremental_delete")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault = Path(tmpdir)
+        notes = vault / "01 Notes"
+        notes.mkdir()
+        file_a = notes / "Decision - A.md"
+        file_b = notes / "Note B.md"
+        file_a.write_text(SAMPLE_DECISION)
+        file_b.write_text(SAMPLE_NOTE)
+
+        # 전체 인덱싱
+        count1 = build_index(collection, vault_path=vault, force=True)
+        assert count1 == 2
+
+        # 파일 하나 삭제 후 증분 인덱싱
+        file_b.unlink()
+        count2 = build_index(collection, vault_path=vault, force=False)
+        assert count2 == 1
