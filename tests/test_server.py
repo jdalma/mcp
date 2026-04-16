@@ -7,6 +7,7 @@ def test_server_module_imports():
     import server
     assert hasattr(server, "mcp")
     assert hasattr(server, "main")
+    assert hasattr(server, "_ensure_initialized")
 
 
 def test_mcp_tools_registered():

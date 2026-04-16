@@ -3,8 +3,6 @@ import logging
 import sys
 from pathlib import Path
 
-import chromadb
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from mcp.server.fastmcp import FastMCP
 
 from config import (
@@ -14,32 +12,42 @@ from config import (
     get_embedding_model,
     get_vault_path,
 )
-from indexer import build_index, collect_vault_files, parse_markdown
+from indexer import build_index
 from searcher import format_results, search
 
 # MCP 서버는 stdio 통신이므로 stdout을 오염시키면 안 된다
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Embedding + ChromaDB 초기화 ---
+# --- Lazy initialization ---
+_collection = None
+_initialized = False
 
-_embedding_fn = SentenceTransformerEmbeddingFunction(
-    model_name=get_embedding_model()
-)
 
-_chroma_client = chromadb.PersistentClient(path=str(get_chroma_dir()))
+def _ensure_initialized():
+    """첫 tool 호출 시에만 embedding 모델과 ChromaDB를 초기화한다."""
+    global _collection, _initialized
+    if _initialized:
+        return
 
-_collection = _chroma_client.get_or_create_collection(
-    name=COLLECTION_NAME,
-    embedding_function=_embedding_fn,
-)
+    import chromadb
+    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
-# 서버 시작 시 인덱스 구축 (이미 인덱싱되어 있으면 빠르게 통과)
-_indexed_count = build_index(_collection)
-logger.info("Server startup: indexed %d documents.", _indexed_count)
+    logger.info("Initializing embedding model and ChromaDB...")
+    embedding_fn = SentenceTransformerEmbeddingFunction(
+        model_name=get_embedding_model()
+    )
+    chroma_client = chromadb.PersistentClient(path=str(get_chroma_dir()))
+    _collection = chroma_client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=embedding_fn,
+    )
+    count = build_index(_collection)
+    logger.info("Initialization complete: indexed %d documents.", count)
+    _initialized = True
 
-# --- MCP 서버 ---
 
+# --- MCP 서버 (즉시 생성, handshake 지연 없음) ---
 mcp = FastMCP(
     "vault-decision",
     instructions=(
@@ -59,6 +67,7 @@ async def query(question: str, max_results: int = MAX_RESULTS_DEFAULT) -> str:
         question: 의사결정 질문 또는 검색 키워드
         max_results: 반환할 최대 결과 수 (기본 5)
     """
+    _ensure_initialized()
     results = search(_collection, question, max_results)
     return format_results(question, results)
 
@@ -66,6 +75,7 @@ async def query(question: str, max_results: int = MAX_RESULTS_DEFAULT) -> str:
 @mcp.tool()
 async def list_decisions() -> str:
     """vault의 모든 Decision 파일 목록과 메타데이터를 반환한다."""
+    _ensure_initialized()
     all_docs = _collection.get(
         where={"type": "decision"},
         include=["metadatas"],
@@ -119,6 +129,7 @@ async def reindex(force: bool = False) -> str:
     Args:
         force: True면 전체 리빌드, False면 증분 업데이트
     """
+    _ensure_initialized()
     count = build_index(_collection, force=force)
     return f"Reindex complete. {count} documents indexed."
 
