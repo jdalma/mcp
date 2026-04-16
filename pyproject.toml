@@ -8,6 +8,7 @@ dependencies = [
     "chromadb",
     "sentence-transformers",
     "pyyaml",
+    "watchdog",
 ]
 
 [project.scripts]
