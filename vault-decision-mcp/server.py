@@ -9,6 +9,8 @@ from config import (
     COLLECTION_NAME,
     MAX_RESULTS_DEFAULT,
     get_chroma_dir,
+    get_daemon_host,
+    get_daemon_port,
     get_embedding_model,
     get_vault_path,
 )
@@ -158,7 +160,31 @@ async def decision_timeline() -> str:
 
 
 def main():
-    mcp.run(transport="stdio")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="vault-decision MCP server")
+    parser.add_argument(
+        "--daemon", action="store_true",
+        help="Run as HTTP daemon (streamable-http) instead of stdio",
+    )
+    parser.add_argument("--host", default=None, help="Daemon host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=None, help="Daemon port (default: 8741)")
+    args = parser.parse_args()
+
+    if args.daemon:
+        import uvicorn
+
+        host = args.host or get_daemon_host()
+        port = args.port or get_daemon_port()
+
+        # 데몬 모드: 시작 시 즉시 초기화 (lazy init 대신)
+        _ensure_initialized()
+        logger.info("Starting daemon on %s:%d", host, port)
+
+        app = mcp.streamable_http_app()
+        uvicorn.run(app, host=host, port=port, log_level="info")
+    else:
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
