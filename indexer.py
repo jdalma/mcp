@@ -68,7 +68,7 @@ def prepare_document(
     search_text = (
         f"# {title}\n"
         f"type: {doc_type} | status: {status} | "
-        f"tags: {', '.join(tags) if isinstance(tags, list) else ''}\n\n"
+        f"tags: {', '.join(str(t) for t in tags) if isinstance(tags, list) else ''}\n\n"
         f"{body}"
     )
 
@@ -79,7 +79,7 @@ def prepare_document(
             "type": doc_type,
             "status": str(status),
             "title": title,
-            "tags": ", ".join(tags) if isinstance(tags, list) else str(tags),
+            "tags": ", ".join(str(t) for t in tags) if isinstance(tags, list) else str(tags),
             "created": str(created),
             "file_path": str(file_path),
             "relative_path": relative,
