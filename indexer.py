@@ -1,0 +1,129 @@
+"""Vault file parsing and ChromaDB indexing."""
+
+import logging
+from pathlib import Path
+
+import yaml
+
+from config import INDEX_PATTERNS, get_vault_path
+
+logger = logging.getLogger(__name__)
+
+
+def parse_markdown(text: str) -> tuple[dict, str]:
+    """마크다운 파일에서 YAML frontmatter와 body를 분리한다."""
+    if not text.startswith("---"):
+        return {}, text
+
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}, text
+
+    try:
+        meta = yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        meta = {}
+
+    body = parts[2].strip()
+    return meta, body
+
+
+def collect_vault_files(vault_path: Path | None = None) -> list[Path]:
+    """INDEX_PATTERNS에 매칭되는 vault 파일을 수집한다."""
+    vault = vault_path or get_vault_path()
+    files: list[Path] = []
+    for pattern in INDEX_PATTERNS:
+        matched = sorted(vault.glob(pattern))
+        files.extend(matched)
+    # 중복 제거 (패턴이 겹칠 수 있음)
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for f in files:
+        if f not in seen:
+            seen.add(f)
+            unique.append(f)
+    return unique
+
+
+def prepare_document(
+    file_path: Path,
+    metadata: dict,
+    body: str,
+    vault_path: Path | None = None,
+) -> dict:
+    """ChromaDB에 저장할 document dict를 구성한다."""
+    vault = vault_path or get_vault_path()
+    try:
+        relative = str(file_path.relative_to(vault))
+    except ValueError:
+        relative = str(file_path)
+
+    title = file_path.stem
+    doc_type = metadata.get("type", "unknown")
+    status = metadata.get("status", "unknown")
+    tags = metadata.get("tags", [])
+    created = metadata.get("created", "")
+
+    # 검색에 사용할 텍스트: 제목 + 메타데이터 요약 + 본문
+    search_text = (
+        f"# {title}\n"
+        f"type: {doc_type} | status: {status} | "
+        f"tags: {', '.join(tags) if isinstance(tags, list) else ''}\n\n"
+        f"{body}"
+    )
+
+    return {
+        "id": relative,
+        "document": search_text,
+        "metadata": {
+            "type": doc_type,
+            "status": str(status),
+            "title": title,
+            "tags": ", ".join(tags) if isinstance(tags, list) else str(tags),
+            "created": str(created),
+            "file_path": str(file_path),
+            "relative_path": relative,
+        },
+    }
+
+
+def build_index(
+    collection,
+    vault_path: Path | None = None,
+) -> int:
+    """vault 파일을 파싱하여 ChromaDB collection에 인덱싱한다.
+
+    Returns:
+        인덱싱된 문서 수.
+    """
+    vault = vault_path or get_vault_path()
+    files = collect_vault_files(vault)
+    if not files:
+        logger.warning("No vault files found to index.")
+        return 0
+
+    ids: list[str] = []
+    documents: list[str] = []
+    metadatas: list[dict] = []
+
+    for file_path in files:
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning("Failed to read %s: %s", file_path, e)
+            continue
+
+        meta, body = parse_markdown(text)
+        doc = prepare_document(file_path, meta, body, vault_path=vault)
+        ids.append(doc["id"])
+        documents.append(doc["document"])
+        metadatas.append(doc["metadata"])
+
+    # 기존 인덱스 초기화 후 재구축 (MVP: 전체 리빌드)
+    existing = collection.get()
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
+
+    collection.add(ids=ids, documents=documents, metadatas=metadatas)
+    logger.info("Indexed %d documents.", len(ids))
+    return len(ids)
