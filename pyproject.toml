@@ -12,3 +12,8 @@ dependencies = [
 
 [project.scripts]
 vault-decision-mcp = "server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
