@@ -1,0 +1,14 @@
+[project]
+name = "vault-decision-mcp"
+version = "0.1.0"
+description = "MCP server for vault-grounded decision advisory"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]",
+    "chromadb",
+    "sentence-transformers",
+    "pyyaml",
+]
+
+[project.scripts]
+vault-decision-mcp = "server:main"
