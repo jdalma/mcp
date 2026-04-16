@@ -14,6 +14,7 @@ from config import (
 )
 from indexer import build_index
 from searcher import format_results, search
+from tools_extra import get_stats, get_decision_timeline
 
 # MCP 서버는 stdio 통신이므로 stdout을 오염시키면 안 된다
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -44,6 +45,14 @@ def _ensure_initialized():
     )
     count = build_index(_collection)
     logger.info("Initialization complete: indexed %d documents.", count)
+
+    # vault 파일 감시 시작 (변경 시 자동 증분 인덱싱)
+    try:
+        from watcher import start_watcher
+        start_watcher(get_vault_path(), lambda: build_index(_collection))
+    except Exception as e:
+        logger.warning("Failed to start vault watcher: %s", e)
+
     _initialized = True
 
 
@@ -132,6 +141,20 @@ async def reindex(force: bool = False) -> str:
     _ensure_initialized()
     count = build_index(_collection, force=force)
     return f"Reindex complete. {count} documents indexed."
+
+
+@mcp.tool()
+async def stats() -> str:
+    """인덱스 상태를 반환한다 (문서 수, 타입별 분포, 상태별 분포)."""
+    _ensure_initialized()
+    return get_stats(_collection)
+
+
+@mcp.tool()
+async def decision_timeline() -> str:
+    """시간순으로 Decision 이력을 반환한다."""
+    _ensure_initialized()
+    return get_decision_timeline(_collection)
 
 
 def main():
