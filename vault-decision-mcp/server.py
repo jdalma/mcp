@@ -1,7 +1,11 @@
 # server.py
+import asyncio
 import logging
+import os
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
 
@@ -16,21 +20,17 @@ from indexer import build_index
 from searcher import format_results, search
 from tools_extra import get_stats, get_decision_timeline
 
-# MCP 서버는 stdio 통신이므로 stdout을 오염시키면 안 된다
+# MCP 서버는 stdio/HTTP 모두 stdout을 오염시키면 안 된다
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Lazy initialization ---
 _collection = None
-_initialized = False
+_observer = None
+_index_lock = asyncio.Lock()
 
 
-def _ensure_initialized():
-    """첫 tool 호출 시에만 embedding 모델과 ChromaDB를 초기화한다."""
-    global _collection, _initialized
-    if _initialized:
-        return
-
+def _init_collection():
+    """임베딩 모델과 ChromaDB를 초기화하고 collection을 반환한다."""
     import chromadb
     from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
@@ -39,24 +39,48 @@ def _ensure_initialized():
         model_name=get_embedding_model()
     )
     chroma_client = chromadb.PersistentClient(path=str(get_chroma_dir()))
-    _collection = chroma_client.get_or_create_collection(
+    collection = chroma_client.get_or_create_collection(
         name=COLLECTION_NAME,
         embedding_function=embedding_fn,
     )
-    count = build_index(_collection)
+    count = build_index(collection)
     logger.info("Initialization complete: indexed %d documents.", count)
+    return collection
 
-    # vault 파일 감시 시작 (변경 시 자동 증분 인덱싱)
+
+@asynccontextmanager
+async def lifespan(server: FastMCP) -> AsyncIterator[None]:
+    """서버 시작 시 초기화, 종료 시 watcher를 정상 종료한다."""
+    global _collection, _observer
+
+    _collection = _init_collection()
+
+    loop = asyncio.get_running_loop()
+
     try:
         from watcher import start_watcher
-        start_watcher(get_vault_path(), lambda: build_index(_collection))
+
+        async def _reindex():
+            async with _index_lock:
+                build_index(_collection)
+
+        def _reindex_sync():
+            asyncio.run_coroutine_threadsafe(_reindex(), loop)
+
+        _observer = start_watcher(get_vault_path(), _reindex_sync)
     except Exception as e:
         logger.warning("Failed to start vault watcher: %s", e)
 
-    _initialized = True
+    try:
+        yield
+    finally:
+        if _observer is not None:
+            logger.info("Stopping vault watcher...")
+            _observer.stop()
+            _observer.join()
+            logger.info("Vault watcher stopped.")
 
 
-# --- MCP 서버 (즉시 생성, handshake 지연 없음) ---
 mcp = FastMCP(
     "vault-decision",
     instructions=(
@@ -65,6 +89,9 @@ mcp = FastMCP(
         "ADRs, and technical notes to provide grounded decision advice. "
         "Use the 'query' tool to find relevant prior decisions."
     ),
+    host=os.environ.get("MCP_HOST", "127.0.0.1"),
+    port=int(os.environ.get("MCP_PORT", "8765")),
+    lifespan=lifespan,
 )
 
 
@@ -76,7 +103,6 @@ async def query(question: str, max_results: int = MAX_RESULTS_DEFAULT) -> str:
         question: 의사결정 질문 또는 검색 키워드
         max_results: 반환할 최대 결과 수 (기본 5)
     """
-    _ensure_initialized()
     results = search(_collection, question, max_results)
     return format_results(question, results)
 
@@ -84,7 +110,6 @@ async def query(question: str, max_results: int = MAX_RESULTS_DEFAULT) -> str:
 @mcp.tool()
 async def list_decisions() -> str:
     """vault의 모든 Decision 파일 목록과 메타데이터를 반환한다."""
-    _ensure_initialized()
     all_docs = _collection.get(
         where={"type": "decision"},
         include=["metadatas"],
@@ -113,17 +138,14 @@ async def read_decision(file_name: str) -> str:
     """
     vault = get_vault_path()
 
-    # 상대경로로 직접 찾기
     candidate = vault / file_name
     if candidate.exists():
         return candidate.read_text(encoding="utf-8")
 
-    # .md 확장자 추가
     candidate_md = vault / f"{file_name}.md"
     if candidate_md.exists():
         return candidate_md.read_text(encoding="utf-8")
 
-    # 01 Notes/ 하위에서 찾기
     for f in (vault / "01 Notes").glob("*.md"):
         if file_name.lower() in f.stem.lower():
             return f.read_text(encoding="utf-8")
@@ -138,27 +160,25 @@ async def reindex(force: bool = False) -> str:
     Args:
         force: True면 전체 리빌드, False면 증분 업데이트
     """
-    _ensure_initialized()
-    count = build_index(_collection, force=force)
+    async with _index_lock:
+        count = build_index(_collection, force=force)
     return f"Reindex complete. {count} documents indexed."
 
 
 @mcp.tool()
 async def stats() -> str:
     """인덱스 상태를 반환한다 (문서 수, 타입별 분포, 상태별 분포)."""
-    _ensure_initialized()
     return get_stats(_collection)
 
 
 @mcp.tool()
 async def decision_timeline() -> str:
     """시간순으로 Decision 이력을 반환한다."""
-    _ensure_initialized()
     return get_decision_timeline(_collection)
 
 
 def main():
-    mcp.run(transport="stdio")
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":
