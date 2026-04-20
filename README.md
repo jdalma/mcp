@@ -12,7 +12,7 @@ Obsidian vault의 Decision/Note 파일을 로컬 embedding으로 인덱싱하고
 - **Decision 부스팅** — `type: decision` 문서에 가중치를 부여하여 의사결정 기록 우선 노출
 - **증분 인덱싱** — mtime 기반으로 변경된 파일만 업데이트 (전체 리빌드 옵션 지원)
 - **자동 리인덱싱** — watchdog으로 vault 파일 변경 감지 시 자동 증분 인덱싱
-- **Lazy 초기화** — 첫 tool 호출 시에만 모델 로드 (서버 시작 지연 최소화)
+- **단일 상주 프로세스** — 모든 Claude Code 세션이 하나의 HTTP 서버를 공유 (임베딩 모델 1회 로드)
 
 ### MCP Tools
 
@@ -39,14 +39,39 @@ cd vault-decision-mcp
 uv sync
 ```
 
-Claude Code에 MCP 서버 등록 (`~/.claude.json`):
+#### 서버 시작
+
+```bash
+# 직접 실행
+./start-server.sh
+
+# 포트 변경 시
+MCP_PORT=9000 ./start-server.sh
+```
+
+#### macOS 로그인 시 자동 시작 (launchd)
+
+```bash
+# 등록
+cp com.vault-decision-mcp.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.vault-decision-mcp.plist
+
+# 해제
+launchctl unload ~/Library/LaunchAgents/com.vault-decision-mcp.plist
+```
+
+로그 확인: `tail -f /tmp/vault-decision-mcp.log`
+
+#### Claude Code 등록 (`~/.claude.json`)
+
+서버를 먼저 실행한 뒤 아래 설정을 추가한다:
 
 ```json
 {
   "mcpServers": {
     "vault-decision": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/vault-decision-mcp", "run", "server.py"]
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp"
     }
   }
 }
@@ -58,4 +83,5 @@ Claude Code에 MCP 서버 등록 (`~/.claude.json`):
 |----------|--------|------|
 | `VAULT_PATH` | `~/knowledge/memory-palace` | Obsidian vault 경로 |
 | `VAULT_EMBEDDING_MODEL` | `snunlp/KR-SBERT-V40K-klueNLI-augSTS` | embedding 모델 |
-| `VAULT_DECISION_GATE` | (활성) | `false`로 설정 시 PreToolUse hook 비활성화 |
+| `MCP_HOST` | `127.0.0.1` | 서버 바인딩 주소 |
+| `MCP_PORT` | `8765` | 서버 포트 |
