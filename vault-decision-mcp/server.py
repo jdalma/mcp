@@ -50,34 +50,37 @@ def _init_collection():
 
 @asynccontextmanager
 async def lifespan(server: FastMCP) -> AsyncIterator[None]:
-    """서버 시작 시 초기화, 종료 시 watcher를 정상 종료한다."""
+    """서버 시작 시 1회 초기화, 종료 시 watcher를 정상 종료한다."""
     global _collection, _observer
 
-    _collection = _init_collection()
+    if _collection is None:
+        _collection = _init_collection()
 
     loop = asyncio.get_running_loop()
 
-    try:
-        from watcher import start_watcher
+    if _observer is None:
+        try:
+            from watcher import start_watcher
 
-        async def _reindex():
-            async with _index_lock:
-                build_index(_collection)
+            async def _reindex():
+                async with _index_lock:
+                    build_index(_collection)
 
-        def _reindex_sync():
-            asyncio.run_coroutine_threadsafe(_reindex(), loop)
+            def _reindex_sync():
+                asyncio.run_coroutine_threadsafe(_reindex(), loop)
 
-        _observer = start_watcher(get_vault_path(), _reindex_sync)
-    except Exception as e:
-        logger.warning("Failed to start vault watcher: %s", e)
+            _observer = start_watcher(get_vault_path(), _reindex_sync)
+        except Exception as e:
+            logger.warning("Failed to start vault watcher: %s", e)
 
     try:
         yield
     finally:
-        if _observer is not None:
+        obs, _observer = _observer, None
+        if obs is not None:
             logger.info("Stopping vault watcher...")
-            _observer.stop()
-            _observer.join()
+            obs.stop()
+            obs.join()
             logger.info("Vault watcher stopped.")
 
 
