@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vault-decision-mcp</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/jeonghyunjun/tools/vault-decision-mcp/start-server.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>MCP_HOST</key>
+    <string>127.0.0.1</string>
+    <key>MCP_PORT</key>
+    <string>8765</string>
+  </dict>
+
+  <!-- 로그인 시 자동 시작 -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- 크래시 시 자동 재시작 -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- 재시작 최소 간격 (초) — 빠른 반복 크래시 방지 -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/vault-decision-mcp.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/vault-decision-mcp.log</string>
+</dict>
+</plist>
