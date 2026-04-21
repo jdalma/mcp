@@ -12,11 +12,13 @@ EMBEDDING_MODEL_DEFAULT = "snunlp/KR-SBERT-V40K-klueNLI-augSTS"
 COLLECTION_NAME = "vault_decisions"
 
 INDEX_PATTERNS = [
-    "00 Inbox/*.md",
     "01 Notes/*.md",
     "02 Maps/*.md",
     "03 Sources/*.md",
     "99 Archive/**/*.md",
+    "graphify-out/GRAPH_REPORT.md",
+    "graphify-out/wiki/*.md",
+    "graphify-out/wiki/**/*.md",
 ]
 
 MAX_RESULTS_DEFAULT = 5

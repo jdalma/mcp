@@ -48,13 +48,20 @@ def _init_collection():
     return collection
 
 
+def _ensure_initialized():
+    """Lazily initialize the collection for direct module use and tests."""
+    global _collection
+    if _collection is None:
+        _collection = _init_collection()
+    return _collection
+
+
 @asynccontextmanager
 async def lifespan(server: FastMCP) -> AsyncIterator[None]:
     """서버 시작 시 1회 초기화, 종료 시 watcher를 정상 종료한다."""
     global _collection, _observer
 
-    if _collection is None:
-        _collection = _init_collection()
+    _ensure_initialized()
 
     loop = asyncio.get_running_loop()
 
@@ -106,14 +113,14 @@ async def query(question: str, max_results: int = MAX_RESULTS_DEFAULT) -> str:
         question: 의사결정 질문 또는 검색 키워드
         max_results: 반환할 최대 결과 수 (기본 5)
     """
-    results = search(_collection, question, max_results)
+    results = search(_ensure_initialized(), question, max_results)
     return format_results(question, results)
 
 
 @mcp.tool()
 async def list_decisions() -> str:
     """vault의 모든 Decision 파일 목록과 메타데이터를 반환한다."""
-    all_docs = _collection.get(
+    all_docs = _ensure_initialized().get(
         where={"type": "decision"},
         include=["metadatas"],
     )
@@ -164,20 +171,20 @@ async def reindex(force: bool = False) -> str:
         force: True면 전체 리빌드, False면 증분 업데이트
     """
     async with _index_lock:
-        count = build_index(_collection, force=force)
+        count = build_index(_ensure_initialized(), force=force)
     return f"Reindex complete. {count} documents indexed."
 
 
 @mcp.tool()
 async def stats() -> str:
     """인덱스 상태를 반환한다 (문서 수, 타입별 분포, 상태별 분포)."""
-    return get_stats(_collection)
+    return get_stats(_ensure_initialized())
 
 
 @mcp.tool()
 async def decision_timeline() -> str:
     """시간순으로 Decision 이력을 반환한다."""
-    return get_decision_timeline(_collection)
+    return get_decision_timeline(_ensure_initialized())
 
 
 def main():
