@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -16,6 +17,7 @@ from config import (
     get_embedding_model,
     get_vault_path,
 )
+from call_logger import log_call
 from indexer import build_index
 from searcher import format_results, search
 from tools_extra import get_stats, get_decision_timeline
@@ -113,7 +115,20 @@ async def query(question: str, max_results: int = MAX_RESULTS_DEFAULT) -> str:
         question: 의사결정 질문 또는 검색 키워드
         max_results: 반환할 최대 결과 수 (기본 5)
     """
+    t0 = time.monotonic()
     results = search(_ensure_initialized(), question, max_results)
+    elapsed = (time.monotonic() - t0) * 1000
+    log_call(
+        tool="query",
+        inputs={"question": question, "max_results": max_results},
+        result_summary={
+            "hits": len(results.get("ids", [[]])[0]) if results.get("ids") else 0,
+            "top_titles": [
+                m.get("title", "") for m in (results.get("metadatas", [[]])[0] or [])[:3]
+            ],
+        },
+        elapsed_ms=elapsed,
+    )
     return format_results(question, results)
 
 
@@ -170,21 +185,45 @@ async def reindex(force: bool = False) -> str:
     Args:
         force: True면 전체 리빌드, False면 증분 업데이트
     """
+    t0 = time.monotonic()
     async with _index_lock:
         count = build_index(_ensure_initialized(), force=force)
+    elapsed = (time.monotonic() - t0) * 1000
+    log_call(
+        tool="reindex",
+        inputs={"force": force},
+        result_summary={"indexed": count},
+        elapsed_ms=elapsed,
+    )
     return f"Reindex complete. {count} documents indexed."
 
 
 @mcp.tool()
 async def stats() -> str:
     """인덱스 상태를 반환한다 (문서 수, 타입별 분포, 상태별 분포)."""
-    return get_stats(_ensure_initialized())
+    t0 = time.monotonic()
+    result = get_stats(_ensure_initialized())
+    log_call(
+        tool="stats",
+        inputs={},
+        result_summary={},
+        elapsed_ms=(time.monotonic() - t0) * 1000,
+    )
+    return result
 
 
 @mcp.tool()
 async def decision_timeline() -> str:
     """시간순으로 Decision 이력을 반환한다."""
-    return get_decision_timeline(_ensure_initialized())
+    t0 = time.monotonic()
+    result = get_decision_timeline(_ensure_initialized())
+    log_call(
+        tool="decision_timeline",
+        inputs={},
+        result_summary={},
+        elapsed_ms=(time.monotonic() - t0) * 1000,
+    )
+    return result
 
 
 def main():
