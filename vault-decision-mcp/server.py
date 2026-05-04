@@ -18,6 +18,7 @@ from config import (
     get_vault_path,
 )
 from call_logger import log_call
+from advisor import build_advice, format_advice
 from indexer import build_index
 from searcher import format_results, search
 from tools_extra import get_stats, get_decision_timeline
@@ -99,7 +100,7 @@ mcp = FastMCP(
         "Vault Decision Advisory MCP Server. "
         "Searches the user's personal knowledge vault for past decisions, "
         "ADRs, and technical notes to provide grounded decision advice. "
-        "Use the 'query' tool to find relevant prior decisions."
+        "Use the 'advise' tool for decision support and 'query' for raw search."
     ),
     host=os.environ.get("MCP_HOST", "127.0.0.1"),
     port=int(os.environ.get("MCP_PORT", "8765")),
@@ -129,7 +130,37 @@ async def query(question: str, max_results: int = MAX_RESULTS_DEFAULT) -> str:
         },
         elapsed_ms=elapsed,
     )
-    return format_results(question, results)
+    return format_results(question, results, max_results=max_results)
+
+
+@mcp.tool()
+async def advise(question: str, max_results: int = MAX_RESULTS_DEFAULT) -> dict:
+    """vault 검색 결과를 권한 수준과 추천 행동으로 판정한다.
+
+    Args:
+        question: 의사결정 질문 또는 검색 키워드
+        max_results: 반환할 최대 근거 수 (기본 5)
+    """
+    t0 = time.monotonic()
+    results = search(_ensure_initialized(), question, max_results)
+    advice = build_advice(question, results, max_results=max_results)
+    elapsed = (time.monotonic() - t0) * 1000
+    log_call(
+        tool="advise",
+        inputs={"question": question, "max_results": max_results},
+        result_summary={
+            "question_type": advice["question_type"],
+            "authority_level": advice["authority_level"],
+            "recommended_action": advice["recommended_action"],
+            "basis_titles": [item.get("title", "") for item in advice.get("basis", [])[:3]],
+            "warnings": advice.get("warnings", []),
+        },
+        elapsed_ms=elapsed,
+    )
+    return {
+        **advice,
+        "summary": format_advice(advice),
+    }
 
 
 @mcp.tool()

@@ -84,3 +84,29 @@ def test_format_results_status_boosted():
     decided_pos = result.index("Decided Decision")
     draft_pos = result.index("Draft Decision")
     assert decided_pos < draft_pos, "Decided should appear before Draft due to status boosting"
+
+
+def test_low_similarity_decision_is_not_boosted_over_relevant_note():
+    """Semantic threshold prevents unrelated decisions from winning by type alone."""
+    from searcher import rank_results
+
+    query_results = {
+        "ids": [["decision1", "note1"]],
+        "documents": [["unrelated decision", "relevant note"]],
+        "metadatas": [[
+            {"type": "decision", "status": "decided", "title": "Unrelated Decision",
+             "tags": "", "created": "2026-04-10",
+             "file_path": "/vault/decision.md", "relative_path": "decision.md",
+             "path_role": "active_decision"},
+            {"type": "note", "status": "confirmed", "title": "Relevant Note",
+             "tags": "", "created": "2026-04-10",
+             "file_path": "/vault/note.md", "relative_path": "note.md",
+             "path_role": "active_note"},
+        ]],
+        # decision similarity = 0.30, note similarity = 0.40
+        "distances": [[0.70, 0.60]],
+    }
+
+    ranked = rank_results(query_results)
+
+    assert ranked[0]["metadata"]["title"] == "Relevant Note"

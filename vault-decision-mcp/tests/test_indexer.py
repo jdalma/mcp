@@ -123,7 +123,37 @@ def test_prepare_documents():
     )
     assert doc["id"] == "01 Notes/Decision - Test.md"
     assert doc["metadata"]["type"] == "decision"
+    assert doc["metadata"]["path_role"] == "active_decision"
+    assert doc["metadata"]["has_decision_candidates"] is False
+    assert doc["metadata"]["content_hash"]
     assert "Option A를 선택한다" in doc["document"]
+
+
+def test_prepare_note_with_decision_candidates():
+    from indexer import parse_markdown, prepare_document
+
+    sample = """---
+type: note
+status: draft
+decision_candidates:
+  - title: Candidate A
+    reason: Durable tradeoff
+---
+
+# Note
+
+Body.
+"""
+    meta, body = parse_markdown(sample)
+    doc = prepare_document(
+        file_path=Path("/vault/01 Notes/Note - Test.md"),
+        metadata=meta,
+        body=body,
+        vault_path=Path("/vault"),
+    )
+
+    assert doc["metadata"]["path_role"] == "active_note"
+    assert doc["metadata"]["has_decision_candidates"] is True
 
 
 def test_incremental_index():

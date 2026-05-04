@@ -1,5 +1,6 @@
 """Vault file parsing and ChromaDB indexing."""
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -8,6 +9,44 @@ import yaml
 from config import INDEX_PATTERNS, get_vault_path
 
 logger = logging.getLogger(__name__)
+
+
+def _metadata_list(value) -> str:
+    """Convert YAML scalar/list metadata to Chroma-friendly text."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    return str(value)
+
+
+def _has_decision_candidates(value) -> bool:
+    return isinstance(value, list) and len(value) > 0
+
+
+def infer_path_role(relative_path: str, metadata: dict) -> str:
+    """Infer the vault role from path and frontmatter."""
+    doc_type = metadata.get("type", "unknown")
+    path = relative_path.replace("\\", "/")
+    name = Path(path).name
+
+    if path.startswith("00 Inbox/"):
+        return "inbox_staging"
+    if path.startswith("01 Notes/") and doc_type == "decision" and name.startswith("Decision - "):
+        return "active_decision"
+    if path.startswith("01 Notes/"):
+        return "active_note"
+    if path.startswith("02 Maps/"):
+        return "moc"
+    if path.startswith("03 Sources/"):
+        return "source"
+    if path.startswith("99 Archive/"):
+        return "archive"
+    if path.startswith("graphify-out/"):
+        return "graph_sidecar"
+    if path.startswith("docs/plans/"):
+        return "planning"
+    return "unknown"
 
 
 def parse_markdown(text: str) -> tuple[dict, str]:
@@ -63,6 +102,15 @@ def prepare_document(
     status = metadata.get("status", "unknown")
     tags = metadata.get("tags", [])
     created = metadata.get("created", "")
+    updated = metadata.get("updated", "")
+    decided_on = metadata.get("decided_on", "")
+    revisit_when = metadata.get("revisit_when", "")
+    decision_status = metadata.get("decision_status", "")
+    mocs = metadata.get("mocs", [])
+    sources = metadata.get("sources", [])
+    decision_candidates = metadata.get("decision_candidates", [])
+    path_role = infer_path_role(relative, metadata)
+    content_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
 
     # 검색에 사용할 텍스트: 제목 + 메타데이터 요약 + 본문
     search_text = (
@@ -79,8 +127,17 @@ def prepare_document(
             "type": doc_type,
             "status": str(status),
             "title": title,
-            "tags": ", ".join(str(t) for t in tags) if isinstance(tags, list) else str(tags),
+            "tags": _metadata_list(tags),
             "created": str(created),
+            "updated": str(updated),
+            "decided_on": str(decided_on),
+            "revisit_when": str(revisit_when),
+            "decision_status": str(decision_status),
+            "mocs": _metadata_list(mocs),
+            "sources": _metadata_list(sources),
+            "has_decision_candidates": _has_decision_candidates(decision_candidates),
+            "path_role": path_role,
+            "content_hash": content_hash,
             "file_path": str(file_path),
             "relative_path": relative,
         },
