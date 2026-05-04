@@ -45,16 +45,20 @@ def get_decision_timeline(collection) -> str:
     if not all_docs["ids"]:
         return "## Decision Timeline\n\nNo decisions found."
 
-    # created 기준 정렬
+    # decided_on 우선, 없으면 created를 fallback으로 사용
+    def _sort_key(item):
+        meta = item[1]
+        return meta.get("decided_on", "") or meta.get("created", "")
+
     entries = list(zip(all_docs["ids"], all_docs["metadatas"]))
-    entries.sort(key=lambda x: x[1].get("created", ""), reverse=True)
+    entries.sort(key=_sort_key, reverse=True)
 
     lines = ["## Decision Timeline\n"]
     for doc_id, meta in entries:
         title = meta.get("title", doc_id)
-        created = meta.get("created", "unknown")
+        decided_on = meta.get("decided_on", "") or meta.get("created", "unknown")
         status = meta.get("status", "")
-        lines.append(f"- **{created}** — {title} ({status})")
+        lines.append(f"- **{decided_on}** — {title} ({status})")
 
     lines.append(f"\nTotal: {len(entries)} decisions")
     return "\n".join(lines)

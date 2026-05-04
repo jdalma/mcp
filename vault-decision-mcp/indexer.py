@@ -49,8 +49,11 @@ def infer_path_role(relative_path: str, metadata: dict) -> str:
     return "unknown"
 
 
-def parse_markdown(text: str) -> tuple[dict, str]:
-    """마크다운 파일에서 YAML frontmatter와 body를 분리한다."""
+def parse_markdown(text: str, source: str | None = None) -> tuple[dict, str]:
+    """마크다운 파일에서 YAML frontmatter와 body를 분리한다.
+
+    YAML 파싱 실패 시 빈 dict로 fallback하지만 경고 로그를 남긴다.
+    """
     if not text.startswith("---"):
         return {}, text
 
@@ -60,7 +63,19 @@ def parse_markdown(text: str) -> tuple[dict, str]:
 
     try:
         meta = yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
+    except yaml.YAMLError as e:
+        logger.warning(
+            "YAML frontmatter parse failed%s: %s",
+            f" for {source}" if source else "",
+            e,
+        )
+        meta = {}
+
+    if not isinstance(meta, dict):
+        logger.warning(
+            "YAML frontmatter is not a mapping%s; ignoring",
+            f" for {source}" if source else "",
+        )
         meta = {}
 
     body = parts[2].strip()
@@ -68,19 +83,31 @@ def parse_markdown(text: str) -> tuple[dict, str]:
 
 
 def collect_vault_files(vault_path: Path | None = None) -> list[Path]:
-    """INDEX_PATTERNS에 매칭되는 vault 파일을 수집한다."""
+    """INDEX_PATTERNS에 매칭되는 vault 파일을 수집한다.
+
+    vault root 밖을 가리키는 symlink는 제외한다 (경로 탈출 방지).
+    """
     vault = vault_path or get_vault_path()
+    vault_root = vault.resolve()
+
     files: list[Path] = []
     for pattern in INDEX_PATTERNS:
         matched = sorted(vault.glob(pattern))
         files.extend(matched)
-    # 중복 제거 (패턴이 겹칠 수 있음)
+
     seen: set[Path] = set()
     unique: list[Path] = []
     for f in files:
-        if f not in seen:
-            seen.add(f)
-            unique.append(f)
+        if f in seen:
+            continue
+        seen.add(f)
+        try:
+            resolved = f.resolve(strict=False)
+            resolved.relative_to(vault_root)
+        except ValueError:
+            logger.warning("Skipping path that escapes vault root: %s", f)
+            continue
+        unique.append(f)
     return unique
 
 
@@ -109,6 +136,7 @@ def prepare_document(
     mocs = metadata.get("mocs", [])
     sources = metadata.get("sources", [])
     decision_candidates = metadata.get("decision_candidates", [])
+    conflicts_with = metadata.get("conflicts_with", "")
     path_role = infer_path_role(relative, metadata)
     content_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
 
@@ -136,6 +164,7 @@ def prepare_document(
             "mocs": _metadata_list(mocs),
             "sources": _metadata_list(sources),
             "has_decision_candidates": _has_decision_candidates(decision_candidates),
+            "conflicts_with": _metadata_list(conflicts_with),
             "path_role": path_role,
             "content_hash": content_hash,
             "file_path": str(file_path),
@@ -217,7 +246,7 @@ def build_index(
             logger.warning("Failed to read %s: %s", file_path, e)
             continue
 
-        meta, body = parse_markdown(text)
+        meta, body = parse_markdown(text, source=str(file_path))
         doc = prepare_document(file_path, meta, body, vault_path=vault)
         rel = doc["id"]
         doc["metadata"]["mtime"] = current_files.get(rel, "")

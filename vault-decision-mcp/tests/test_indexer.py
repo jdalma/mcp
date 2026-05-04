@@ -156,6 +156,54 @@ Body.
     assert doc["metadata"]["has_decision_candidates"] is True
 
 
+def test_conflicts_with_is_persisted_to_metadata():
+    """conflicts_with 필드가 ChromaDB metadata에 실제로 저장되는지 검증.
+
+    회귀 방지: 이전엔 prepare_document에서 누락되어 advisor가 항상 빈 문자열을 받았음.
+    """
+    from indexer import parse_markdown, prepare_document
+
+    sample = """---
+type: decision
+status: decided
+conflicts_with: "Decision - Other"
+---
+
+# Decision: Conflict Test
+"""
+    meta, body = parse_markdown(sample)
+    doc = prepare_document(
+        file_path=Path("/vault/01 Notes/Decision - X.md"),
+        metadata=meta,
+        body=body,
+        vault_path=Path("/vault"),
+    )
+    assert doc["metadata"]["conflicts_with"] == "Decision - Other"
+
+
+def test_collect_vault_files_excludes_symlink_escape(tmp_path):
+    """vault 외부를 가리키는 symlink는 인덱싱 대상에서 제외되어야 함."""
+    from indexer import collect_vault_files
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.md"
+    secret.write_text("secret content")
+
+    vault = tmp_path / "vault"
+    notes = vault / "01 Notes"
+    notes.mkdir(parents=True)
+    (notes / "real.md").write_text("# real")
+
+    # vault 안에서 vault 밖을 가리키는 symlink
+    (notes / "leaked.md").symlink_to(secret)
+
+    files = collect_vault_files(vault)
+    names = [f.name for f in files]
+    assert "real.md" in names
+    assert "leaked.md" not in names
+
+
 def test_incremental_index():
     """변경되지 않은 파일은 재인덱싱하지 않는 증분 인덱싱 테스트."""
     import time

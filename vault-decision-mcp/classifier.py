@@ -33,8 +33,14 @@ IMPLEMENTATION_PATTERNS = [
 DESTRUCTIVE_PATTERNS = [
     re.compile(pattern, re.IGNORECASE)
     for pattern in [
-        r"\bdelete\b|\bremove\b|\bdrop\b|\breset\b|\bdeploy\b|\bmigrate\b|\brollback\b|\bpush\b|\bmerge\b",
-        r"삭제|제거|드롭|리셋|초기화|배포|마이그레이션|롤백|푸시|머지",
+        # 명령형/실행 의도가 분명한 동사만 매칭. 전략·설계 질문(예: "deploy 전략을 어떻게")은
+        # tradeoff_decision으로 분류되도록 좁힌다.
+        r"\bdelete\b|\bremove\b|\bdrop\b|\breset\b|\brollback\b",
+        r"\b(deploy|push|merge|migrate)\s+(it|this|that|now|to|the)\b",
+        r"\b(run|execute|apply)\s+(the\s+)?(migration|deploy|rollback)\b",
+        r"삭제(해|할까|하자|하라|할게)|제거(해|할까|하자|하라)|드롭(해|할까)|리셋(해|할까)|초기화(해|할까)",
+        r"롤백(해|할까|하자|하라)|푸시(해|할까|하자|하라)|머지(해|할까|하자|하라)",
+        r"배포(해|할까|하자|하라|시작)|마이그레이션\s*(실행|시작|해|할까)",
     ]
 ]
 
