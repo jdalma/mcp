@@ -5,3 +5,4 @@ __pycache__/
 .omc/
 .omx/
 .DS_Store
+*.excalidraw
