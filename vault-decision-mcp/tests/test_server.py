@@ -1,4 +1,5 @@
 # tests/test_server.py
+import asyncio
 import importlib
 
 
@@ -15,6 +16,39 @@ def test_mcp_tools_registered():
     import server
     tool_names = [t.name for t in server.mcp._tool_manager.list_tools()]
     assert "query" in tool_names
+    assert "advise" in tool_names
     assert "list_decisions" in tool_names
     assert "read_decision" in tool_names
     assert "reindex" in tool_names
+
+
+def test_read_decision_rejects_path_escape(tmp_path, monkeypatch):
+    import server
+
+    vault = tmp_path / "vault"
+    notes = vault / "01 Notes"
+    notes.mkdir(parents=True)
+    (notes / "Decision - Safe.md").write_text("safe", encoding="utf-8")
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside", encoding="utf-8")
+
+    monkeypatch.setattr(server, "get_vault_path", lambda: vault)
+
+    result = asyncio.run(server.read_decision(str(outside)))
+
+    assert result == f"File not found: {outside}"
+
+
+def test_read_decision_rejects_inbox_files(tmp_path, monkeypatch):
+    import server
+
+    vault = tmp_path / "vault"
+    inbox = vault / "00 Inbox"
+    inbox.mkdir(parents=True)
+    (inbox / "Raw.md").write_text("raw", encoding="utf-8")
+
+    monkeypatch.setattr(server, "get_vault_path", lambda: vault)
+
+    result = asyncio.run(server.read_decision("00 Inbox/Raw.md"))
+
+    assert result == "File not found: 00 Inbox/Raw.md"

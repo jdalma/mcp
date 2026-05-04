@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 _collection = None
 _observer = None
 _index_lock = asyncio.Lock()
+ALLOWED_READ_PREFIXES = ("01 Notes/", "02 Maps/", "03 Sources/", "99 Archive/")
 
 
 def _init_collection():
@@ -57,6 +58,27 @@ def _ensure_initialized():
     if _collection is None:
         _collection = _init_collection()
     return _collection
+
+
+def _resolve_allowed_markdown(vault: Path, file_name: str) -> Path | None:
+    """Resolve a requested vault markdown file without allowing path escape."""
+    vault_root = vault.resolve()
+    candidates = [vault / file_name]
+    if not file_name.endswith(".md"):
+        candidates.append(vault / f"{file_name}.md")
+
+    for candidate in candidates:
+        resolved = candidate.resolve(strict=False)
+        if not resolved.exists() or not resolved.is_file() or resolved.suffix != ".md":
+            continue
+        try:
+            relative = resolved.relative_to(vault_root).as_posix()
+        except ValueError:
+            continue
+        if any(relative.startswith(prefix) for prefix in ALLOWED_READ_PREFIXES):
+            return resolved
+
+    return None
 
 
 @asynccontextmanager
@@ -194,13 +216,9 @@ async def read_decision(file_name: str) -> str:
     """
     vault = get_vault_path()
 
-    candidate = vault / file_name
-    if candidate.exists():
+    candidate = _resolve_allowed_markdown(vault, file_name)
+    if candidate:
         return candidate.read_text(encoding="utf-8")
-
-    candidate_md = vault / f"{file_name}.md"
-    if candidate_md.exists():
-        return candidate_md.read_text(encoding="utf-8")
 
     for f in (vault / "01 Notes").glob("*.md"):
         if file_name.lower() in f.stem.lower():
