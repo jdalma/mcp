@@ -1,11 +1,14 @@
 """Vault file watcher for automatic re-indexing."""
 
 import logging
+import os
+import sys
 import threading
 from pathlib import Path
 
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,19 @@ class VaultChangeHandler(FileSystemEventHandler):
             self._schedule_reindex()
 
 
+def _observer_class():
+    mode = os.environ.get("VAULT_WATCHER", "").lower()
+    if mode == "native":
+        return Observer
+    if mode == "polling":
+        return PollingObserver
+    # macOS FSEvents can fail in sandboxed or synced folders. Prefer polling for
+    # reliability over lower latency in this local advisory server.
+    if sys.platform == "darwin":
+        return PollingObserver
+    return Observer
+
+
 def start_watcher(vault_path: Path, reindex_callback) -> Observer:
     """vault 디렉토리 감시를 시작한다. 별도 데몬 스레드로 실행.
 
@@ -62,9 +78,19 @@ def start_watcher(vault_path: Path, reindex_callback) -> Observer:
         Observer 인스턴스 (stop() 호출로 중지 가능)
     """
     handler = VaultChangeHandler(reindex_callback)
-    observer = Observer()
+    observer_cls = _observer_class()
+    observer = observer_cls()
     observer.schedule(handler, str(vault_path), recursive=True)
     observer.daemon = True
-    observer.start()
-    logger.info("Vault watcher started: %s", vault_path)
+    try:
+        observer.start()
+    except Exception as e:
+        if observer_cls is PollingObserver:
+            raise
+        logger.warning("Native watcher failed (%s); falling back to polling.", e)
+        observer = PollingObserver()
+        observer.schedule(handler, str(vault_path), recursive=True)
+        observer.daemon = True
+        observer.start()
+    logger.info("Vault watcher started with %s: %s", observer.__class__.__name__, vault_path)
     return observer
