@@ -13,4 +13,14 @@ if lsof -i "TCP:$PORT" -sTCP:LISTEN -t &>/dev/null; then
   exit 1
 fi
 
-exec uv --directory "$SERVER_DIR" run server.py
+UV_BIN="${UV_BIN:-/Users/jeonghyunjun/.local/bin/uv}"
+if [[ ! -x "$UV_BIN" ]]; then
+  UV_BIN="$(command -v uv || true)"
+fi
+
+if [[ -z "${UV_BIN:-}" || ! -x "$UV_BIN" ]]; then
+  echo "ERROR: uv executable not found. Set UV_BIN=/path/to/uv." >&2
+  exit 1
+fi
+
+exec "$UV_BIN" --directory "$SERVER_DIR" run server.py
