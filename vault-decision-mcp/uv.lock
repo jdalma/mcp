@@ -3276,10 +3276,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "chromadb" },
+    { name = "chromadb", specifier = "==1.5.7" },
     { name = "mcp", extras = ["cli"] },
     { name = "pyyaml" },
-    { name = "sentence-transformers" },
+    { name = "sentence-transformers", specifier = "==5.4.1" },
     { name = "watchdog" },
 ]
 
