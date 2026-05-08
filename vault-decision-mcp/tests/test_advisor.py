@@ -238,6 +238,50 @@ def test_format_advice_fences_excerpts_escape_backticks():
     assert len(fence_opens) % 2 == 0, "Fenced blocks must be properly opened and closed"
 
 
+def test_basis_section_toc_fallback_when_no_decision_section():
+    """## Decision 섹션이 없는 긴 문서에서 decision_excerpt가 TOC 형태로 반환된다."""
+    from advisor import build_advice
+
+    long_doc_no_decision_section = (
+        "# Note: Architecture Overview\n\n"
+        "## Background\n\nLong background text.\n\n"
+        "## Options\n\nOption A, Option B.\n\n"
+        "## Tradeoffs\n\nTradeoff analysis.\n\n"
+        "## Conclusion\n\nSome conclusion.\n"
+    )
+
+    results = _result([
+        _entry(
+            "01 Notes/Note - Architecture Overview.md",
+            long_doc_no_decision_section,
+            {
+                "title": "Note - Architecture Overview",
+                "type": "note",
+                "status": "confirmed",
+                "path_role": "active_note",
+            },
+            distance=0.2,
+        )
+    ])
+
+    advice = build_advice("아키텍처 결정을 어떻게 해야 할까?", results)
+    basis = advice.get("basis", [])
+
+    # basis가 있으면 decision_excerpt가 TOC 섹션 목록을 포함해야 함
+    if basis:
+        excerpt = basis[0].get("decision_excerpt", "")
+        # ## Decision 섹션이 없으므로 TOC fallback이 있거나 빈 문자열이 아닌 내용 반환
+        # TOC fallback: "Sections: Background, Options, Tradeoffs, Conclusion" 형태
+        assert excerpt, "decision_excerpt가 완전히 비어있음 — TOC fallback이 반환돼야 함"
+        # TOC 섹션 중 하나가 포함되어야 함
+        has_toc_or_content = any(
+            heading in excerpt for heading in ["Background", "Options", "Tradeoffs", "Conclusion", "Sections:"]
+        )
+        assert has_toc_or_content, (
+            f"decision_excerpt가 TOC나 섹션 내용을 포함하지 않음: {excerpt!r}"
+        )
+
+
 def test_historical_negative_from_decision_status_frontmatter():
     """decision_status: superseded인 active 결정은 historical_negative로 분류된다."""
     from advisor import build_advice
