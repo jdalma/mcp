@@ -22,6 +22,7 @@ from advisor import build_advice, format_advice
 from indexer import build_index
 from searcher import format_results, search
 from tools_extra import get_stats, get_decision_timeline
+from lint import run_lint
 
 # MCP 서버는 stdio/HTTP 모두 stdout을 오염시키면 안 된다
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -382,6 +383,24 @@ async def decision_timeline() -> str:
         tool="decision_timeline",
         inputs={},
         result_summary={},
+        elapsed_ms=(time.monotonic() - t0) * 1000,
+    )
+    return result
+
+
+@mcp.tool()
+async def lint(scope: str = "production_safety") -> dict:
+    """vault 위생 점검을 실행하고 이슈 목록을 반환한다.
+
+    Args:
+        scope: 점검 범위 — "production_safety" | "writing_hygiene" | "all"
+    """
+    t0 = time.monotonic()
+    result = run_lint(vault=get_vault_path(), scope=scope)
+    log_call(
+        tool="lint",
+        inputs={"scope": scope},
+        result_summary={"total": result["summary"]["total"]},
         elapsed_ms=(time.monotonic() - t0) * 1000,
     )
     return result
