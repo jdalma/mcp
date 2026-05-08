@@ -20,6 +20,7 @@
 | [05-search-and-advise.md](./05-search-and-advise.md) | query/advise 호출 한 번이 거치는 16단계 흐름 |
 | [06-decision-lifecycle.md](./06-decision-lifecycle.md) | Decision의 일생, 자동 만료 기준, 사람의 개입 시점과 방법 |
 | [07-troubleshooting.md](./07-troubleshooting.md) | 자주 발생하는 문제, 복구 절차, 운영 관찰, 테스트 실행, 알려진 한계 |
+| [08-trigger-paths.md](./08-trigger-paths.md) | vault MCP 호출 경로 3가지(자동 훅·명시·자발), 트리거 패턴, 테스트 프롬프트 |
 
 ### 시각화
 
