@@ -155,6 +155,101 @@ def check_superseded_dangling(vault: Path | None = None) -> list[dict]:
     return issues
 
 
+def _all_notes(vault: Path) -> list[Path]:
+    notes = vault / "01 Notes"
+    if not notes.exists():
+        return []
+    return sorted(notes.glob("*.md"))
+
+
+def check_missing_rationale(vault: Path | None = None) -> list[dict]:
+    """Decision 파일에 ## Rationale 섹션이 없으면 보고한다."""
+    vault = vault or get_vault_path()
+    issues = []
+    rationale_pattern = re.compile(r"^##\s+rationale", re.IGNORECASE | re.MULTILINE)
+
+    for f in _decision_files(vault):
+        text = f.read_text(encoding="utf-8")
+        _, body = _parse_frontmatter(text)
+        if not rationale_pattern.search(body):
+            rel = str(f.relative_to(vault))
+            issues.append(_issue(
+                rule="missing_rationale",
+                severity="warning",
+                path=rel,
+                message="Decision file is missing a '## Rationale' section.",
+            ))
+
+    return issues
+
+
+def check_missing_created(vault: Path | None = None) -> list[dict]:
+    """frontmatter created 필드가 없는 Decision/Note를 보고한다."""
+    vault = vault or get_vault_path()
+    issues = []
+
+    for f in _all_notes(vault):
+        text = f.read_text(encoding="utf-8")
+        meta, _ = _parse_frontmatter(text)
+        if not meta.get("created"):
+            rel = str(f.relative_to(vault))
+            issues.append(_issue(
+                rule="missing_created",
+                severity="info",
+                path=rel,
+                message="Missing frontmatter 'created' date field.",
+            ))
+
+    return issues
+
+
+def check_missing_tags(vault: Path | None = None) -> list[dict]:
+    """frontmatter tags가 없거나 비어있는 Decision/Note를 보고한다."""
+    vault = vault or get_vault_path()
+    issues = []
+
+    for f in _all_notes(vault):
+        text = f.read_text(encoding="utf-8")
+        meta, _ = _parse_frontmatter(text)
+        tags = meta.get("tags")
+        if not tags or (isinstance(tags, list) and len(tags) == 0):
+            rel = str(f.relative_to(vault))
+            issues.append(_issue(
+                rule="missing_tags",
+                severity="info",
+                path=rel,
+                message="Missing or empty frontmatter 'tags' field.",
+            ))
+
+    return issues
+
+
+def check_dangling_candidate(vault: Path | None = None) -> list[dict]:
+    """decision_candidates 있고 status가 draft인 노트를 보고한다."""
+    vault = vault or get_vault_path()
+    issues = []
+
+    for f in _all_notes(vault):
+        text = f.read_text(encoding="utf-8")
+        meta, _ = _parse_frontmatter(text)
+        candidates = meta.get("decision_candidates")
+        if not candidates or (isinstance(candidates, list) and len(candidates) == 0):
+            continue
+        if str(meta.get("status", "")).lower() == "draft":
+            rel = str(f.relative_to(vault))
+            issues.append(_issue(
+                rule="dangling_candidate",
+                severity="warning",
+                path=rel,
+                message=(
+                    f"Has {len(candidates)} decision_candidate(s) but status is still 'draft' — "
+                    "consider deciding or archiving."
+                ),
+            ))
+
+    return issues
+
+
 def run_lint(vault: Path | None = None, scope: str = "production_safety") -> dict:
     """지정된 scope의 lint 룰을 실행하고 결과를 반환한다."""
     vault = vault or get_vault_path()
@@ -166,10 +261,19 @@ def run_lint(vault: Path | None = None, scope: str = "production_safety") -> dic
         check_superseded_dangling,
     ]
 
+    writing_hygiene_rules = [
+        check_missing_rationale,
+        check_missing_created,
+        check_missing_tags,
+        check_dangling_candidate,
+    ]
+
     if scope == "production_safety":
         rules = production_safety_rules
+    elif scope == "writing_hygiene":
+        rules = writing_hygiene_rules
     elif scope == "all":
-        rules = production_safety_rules
+        rules = production_safety_rules + writing_hygiene_rules
     else:
         rules = production_safety_rules
 
