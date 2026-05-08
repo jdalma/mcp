@@ -236,3 +236,38 @@ def test_format_advice_fences_excerpts_escape_backticks():
     # 펜스 블록이 올바르게 열리고 닫혀야 함 (백틱 3개로 인해 깨지지 않아야 함)
     fence_opens = [m.start() for m in re.finditer(r"^```", output, re.MULTILINE)]
     assert len(fence_opens) % 2 == 0, "Fenced blocks must be properly opened and closed"
+
+
+def test_replacement_pointer_attached_to_stale():
+    """superseded 결정의 basis 또는 next_steps에 replacement_pointer가 포함돼야 한다."""
+    from advisor import build_advice
+
+    results = _result([
+        _entry(
+            "01 Notes/Decision - Legacy Auth.md",
+            "# Decision: Legacy Auth\n\n## Decision\n구형 인증 방식.\n\n## Superseded by\n[[Decision - New Auth]]",
+            {
+                "title": "Decision - Legacy Auth",
+                "type": "decision",
+                "status": "decided",
+                "path_role": "active_decision",
+                "decision_status": "superseded",
+                "superseded_by": "[[Decision - New Auth]]",
+            },
+            distance=0.1,
+        )
+    ])
+
+    advice = build_advice("인증 방식을 어떻게 구현할까?", results)
+
+    # basis[0]에 replacement_pointer 또는 next_steps에 새 결정 참조가 있어야 함
+    basis = advice.get("basis", [])
+    next_steps = advice.get("next_steps", [])
+
+    has_pointer_in_basis = basis and basis[0].get("replacement_pointer")
+    has_pointer_in_next_steps = any("Decision - New Auth" in step for step in next_steps)
+
+    assert has_pointer_in_basis or has_pointer_in_next_steps, (
+        "superseded 결정에 대해 replacement_pointer 또는 next_steps에 "
+        "'Decision - New Auth' 참조가 없음"
+    )

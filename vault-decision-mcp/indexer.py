@@ -141,6 +141,7 @@ def prepare_document(
     decided_on = metadata.get("decided_on", "")
     revisit_when = metadata.get("revisit_when", "")
     decision_status = metadata.get("decision_status", "")
+    superseded_by = metadata.get("superseded_by", "")
     mocs = metadata.get("mocs", [])
     sources = metadata.get("sources", [])
     decision_candidates = metadata.get("decision_candidates", [])
@@ -172,6 +173,7 @@ def prepare_document(
             "decided_on": str(decided_on),
             "revisit_when": str(revisit_when),
             "decision_status": str(decision_status),
+            "superseded_by": str(superseded_by),
             "mocs": _metadata_list(mocs),
             "sources": _metadata_list(sources),
             "has_decision_candidates": _has_decision_candidates(decision_candidates),
