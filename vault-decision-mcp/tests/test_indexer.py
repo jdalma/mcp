@@ -262,3 +262,35 @@ def test_incremental_index_deletes_removed_files():
         file_b.unlink()
         count2 = build_index(collection, vault_path=vault, force=False)
         assert count2 == 1
+
+
+def test_prepare_includes_frontmatter_context():
+    """frontmatter context 필드가 search_text(document)에 포함되는지 검증.
+
+    회귀 방지: context 필드 누락 시 결제 분리 배경 같은 핵심 맥락이 검색에서 빠짐.
+    """
+    from indexer import parse_markdown, prepare_document
+
+    sample = """---
+type: decision
+status: decided
+context: "결제 분리는 동시 결제 사고 때문"
+---
+
+# Decision: Context Test
+
+## Decision
+
+Option A를 선택한다.
+"""
+    meta, body = parse_markdown(sample)
+    doc = prepare_document(
+        file_path=Path("/vault/01 Notes/Decision - Context Test.md"),
+        metadata=meta,
+        body=body,
+        vault_path=Path("/vault"),
+    )
+    document_text = doc["document"]
+    assert "결제 분리" in document_text or "동시 결제 사고" in document_text, (
+        f"frontmatter context가 search_text에 포함되지 않음. document[:300]={document_text[:300]!r}"
+    )

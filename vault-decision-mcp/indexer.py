@@ -140,12 +140,15 @@ def prepare_document(
     path_role = infer_path_role(relative, metadata)
     content_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
 
-    # 검색에 사용할 텍스트: 제목 + 메타데이터 요약 + 본문
+    context = str(metadata.get("context", ""))
+
+    # 검색에 사용할 텍스트: 제목 + 메타데이터 요약 + frontmatter context + 본문
     search_text = (
         f"# {title}\n"
         f"type: {doc_type} | status: {status} | "
-        f"tags: {', '.join(str(t) for t in tags) if isinstance(tags, list) else ''}\n\n"
-        f"{body}"
+        f"tags: {', '.join(str(t) for t in tags) if isinstance(tags, list) else ''}\n"
+        + (f"context: {context}\n" if context else "")
+        + f"\n{body}"
     )
 
     return {
