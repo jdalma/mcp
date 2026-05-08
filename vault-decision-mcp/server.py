@@ -28,9 +28,96 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 _collection = None
+_chroma_client = None
+_previous_collection_name: str | None = None
 _observer = None
 _index_lock = asyncio.Lock()
 ALLOWED_READ_PREFIXES = ("01 Notes/", "02 Maps/", "03 Sources/", "99 Archive/")
+
+
+async def _swap_collection(*, validate=None) -> None:
+    """atomic collection swap with 2-generation deferred deletion.
+
+    Steps:
+    1. Acquire _index_lock
+    2. watcher.pause()
+    3. Create new timestamped collection + build_index
+    4. validate gate (rollback on failure)
+    5. Swap _collection global
+    6. Delete _previous_collection_name (2nd generation)
+    7. Store old name as _previous_collection_name
+    8. watcher.resume()
+    9. Release lock (via context manager)
+    """
+    import chromadb as _chromadb
+    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+
+    global _collection, _chroma_client, _previous_collection_name
+
+    async with _index_lock:
+        try:
+            import watcher as _watcher
+            _watcher.pause()
+        except Exception:
+            pass
+
+        client = _chroma_client
+        if client is None:
+            client = _chromadb.PersistentClient(path=str(get_chroma_dir()))
+
+        model_name = get_embedding_model()
+        embedding_fn = SentenceTransformerEmbeddingFunction(model_name=model_name)
+
+        new_name = f"{COLLECTION_NAME}_{int(time.time() * 1000)}"
+        new_col = client.get_or_create_collection(
+            name=new_name,
+            embedding_function=embedding_fn,
+        )
+
+        try:
+            build_index(new_col, force=True)
+        except Exception:
+            try:
+                client.delete_collection(new_name)
+            except Exception:
+                pass
+            try:
+                import watcher as _watcher
+                _watcher.resume()
+            except Exception:
+                pass
+            raise
+
+        if validate is not None and not validate(new_col):
+            try:
+                client.delete_collection(new_name)
+            except Exception:
+                pass
+            try:
+                import watcher as _watcher
+                _watcher.resume()
+            except Exception:
+                pass
+            return
+
+        old_col = _collection
+        old_name = old_col.name if old_col is not None else None
+
+        # delete 2nd-generation previous
+        if _previous_collection_name is not None:
+            try:
+                client.delete_collection(_previous_collection_name)
+            except Exception:
+                pass
+
+        _collection = new_col
+        _previous_collection_name = old_name
+
+        try:
+            import watcher as _watcher
+            _watcher.resume()
+        except Exception:
+            pass
 
 
 def _check_embedding_model_mismatch(collection, current_model: str) -> bool:
