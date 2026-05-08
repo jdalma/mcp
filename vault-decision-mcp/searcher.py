@@ -128,7 +128,11 @@ def format_results(question: str, query_results: dict, max_results: int = 5) -> 
             lines.append(f"- Created: {created}")
         if tags:
             lines.append(f"- Tags: {tags}")
-        lines.append(f"- Excerpt: {excerpt}")
+        safe_excerpt = excerpt.replace("```", "` ` `")
+        lines.append("- Excerpt:")
+        lines.append("```")
+        lines.append(safe_excerpt)
+        lines.append("```")
         lines.append("")
 
     return "\n".join(lines)
