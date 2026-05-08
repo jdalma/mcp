@@ -282,6 +282,36 @@ def test_basis_section_toc_fallback_when_no_decision_section():
         )
 
 
+def test_historical_negative_via_frontmatter():
+    """archive 노트에 decision_status: retired가 있으면 본문 키워드 없어도 historical_negative."""
+    from advisor import build_advice
+
+    results = _result([
+        _entry(
+            "99 Archive/Decision - Old Framework.md",
+            "# Decision: Old Framework\n\n## Decision\n이전 프레임워크를 선택했다.\n",
+            {
+                "title": "Decision - Old Framework",
+                "type": "decision",
+                "status": "decided",
+                "path_role": "archive",
+                "decision_status": "retired",
+            },
+            distance=0.15,
+        )
+    ])
+
+    advice = build_advice("어떤 프레임워크를 써야 할까?", results)
+
+    assert advice["authority_level"] == "historical_negative", (
+        f"archive + decision_status:retired인데 {advice['authority_level']!r} 반환됨 — "
+        "historical_negative이어야 함"
+    )
+    assert advice["recommended_action"] == "do_not_proceed", (
+        f"historical_negative인데 recommended_action이 {advice['recommended_action']!r}"
+    )
+
+
 def test_historical_negative_from_decision_status_frontmatter():
     """decision_status: superseded인 active 결정은 historical_negative로 분류된다."""
     from advisor import build_advice

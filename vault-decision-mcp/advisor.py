@@ -108,10 +108,17 @@ def _has_conflict(entry: dict[str, Any], decisions: list[dict[str, Any]]) -> boo
     return any(identifier and identifier in conflict_text for identifier in titles | paths)
 
 
+def _has_terminal_decision_status(meta: dict[str, Any]) -> bool:
+    return str(meta.get("decision_status", "")).lower() in {"superseded", "deprecated", "retired"}
+
+
 def _is_historical_negative(entry: dict[str, Any]) -> bool:
     meta = entry.get("metadata", {})
     if meta.get("path_role") != "archive":
         return False
+    # frontmatter decision_status 우선
+    if _has_terminal_decision_status(meta):
+        return True
     haystack = f"{meta.get('title', '')} {entry.get('document', '')}"
     return bool(NEGATIVE_ARCHIVE_PATTERN.search(haystack))
 
