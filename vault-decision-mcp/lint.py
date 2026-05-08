@@ -250,6 +250,135 @@ def check_dangling_candidate(vault: Path | None = None) -> list[dict]:
     return issues
 
 
+_TIME_HINT_PATTERN = re.compile(r"주|개월|년|분기|반기", re.IGNORECASE)
+_DATE_PATTERN_LINT = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
+_LINT_IGNORE_PATTERN = re.compile(r"#\s*lint-ignore:\s*(\S+)")
+
+
+def _has_lint_ignore(body: str, rule: str) -> bool:
+    for m in _LINT_IGNORE_PATTERN.finditer(body):
+        if rule in m.group(1):
+            return True
+    return False
+
+
+def check_revisit_when_time_hint(vault: Path | None = None) -> list[dict]:
+    """revisit_when에 시간 키워드는 있지만 절대 날짜(20XX-XX-XX) 없는 결정을 보고한다."""
+    vault = vault or get_vault_path()
+    issues = []
+
+    for f in _all_notes(vault):
+        text = f.read_text(encoding="utf-8")
+        meta, body = _parse_frontmatter(text)
+        if _has_lint_ignore(body, "revisit_when_time_hint"):
+            continue
+        revisit = str(meta.get("revisit_when", "")).strip()
+        if not revisit:
+            continue
+        if _TIME_HINT_PATTERN.search(revisit) and not _DATE_PATTERN_LINT.search(revisit):
+            rel = str(f.relative_to(vault))
+            issues.append(_issue(
+                rule="revisit_when_time_hint",
+                severity="warning",
+                path=rel,
+                message=f"revisit_when {revisit!r} has time hint but no absolute date (YYYY-MM-DD).",
+            ))
+
+    return issues
+
+
+def check_orphaned_note(vault: Path | None = None) -> list[dict]:
+    """type=note + status≠draft + mocs/sources 모두 비어있는 노트를 보고한다."""
+    vault = vault or get_vault_path()
+    issues = []
+
+    for f in _all_notes(vault):
+        text = f.read_text(encoding="utf-8")
+        meta, body = _parse_frontmatter(text)
+        if _has_lint_ignore(body, "orphaned_note"):
+            continue
+        if meta.get("type") != "note":
+            continue
+        if str(meta.get("status", "")).lower() == "draft":
+            continue
+        mocs = meta.get("mocs") or []
+        sources = meta.get("sources") or []
+        has_mocs = isinstance(mocs, list) and len(mocs) > 0 or (bool(mocs) and not isinstance(mocs, list))
+        has_sources = isinstance(sources, list) and len(sources) > 0 or (bool(sources) and not isinstance(sources, list))
+        if not has_mocs and not has_sources:
+            rel = str(f.relative_to(vault))
+            issues.append(_issue(
+                rule="orphaned_note",
+                severity="info",
+                path=rel,
+                message="Note has no mocs or sources links — may be isolated.",
+            ))
+
+    return issues
+
+
+def check_inbox_aging(vault: Path | None = None) -> list[dict]:
+    """00 Inbox/ 파일 중 mtime이 LINT_INBOX_AGING_DAYS일+ 경과한 것을 보고한다."""
+    import time as _time
+
+    vault = vault or get_vault_path()
+    issues = []
+    threshold_days = int(os.environ.get("LINT_INBOX_AGING_DAYS", "30"))
+    threshold_secs = threshold_days * 24 * 3600
+    now = _time.time()
+
+    inbox = vault / "00 Inbox"
+    if not inbox.exists():
+        return []
+
+    for f in sorted(inbox.glob("*.md")):
+        age = now - f.stat().st_mtime
+        if age >= threshold_secs:
+            rel = str(f.relative_to(vault))
+            issues.append(_issue(
+                rule="inbox_aging",
+                severity="info",
+                path=rel,
+                message=f"Inbox file has been unprocessed for {int(age // 86400)} days.",
+            ))
+
+    return issues
+
+
+def check_unprocessed_candidate(vault: Path | None = None) -> list[dict]:
+    """decision_candidates 있고 mtime이 180일+ 경과한 노트를 보고한다."""
+    import time as _time
+
+    vault = vault or get_vault_path()
+    issues = []
+    threshold_days = int(os.environ.get("LINT_CANDIDATE_AGING_DAYS", "180"))
+    threshold_secs = threshold_days * 24 * 3600
+    now = _time.time()
+
+    for f in _all_notes(vault):
+        text = f.read_text(encoding="utf-8")
+        meta, body = _parse_frontmatter(text)
+        if _has_lint_ignore(body, "unprocessed_candidate"):
+            continue
+        candidates = meta.get("decision_candidates")
+        if not candidates or (isinstance(candidates, list) and len(candidates) == 0):
+            continue
+        age = now - f.stat().st_mtime
+        if age >= threshold_secs:
+            rel = str(f.relative_to(vault))
+            issues.append(_issue(
+                rule="unprocessed_candidate",
+                severity="warning",
+                path=rel,
+                message=(
+                    f"Has {len(candidates)} decision_candidate(s) but not updated "
+                    f"for {int(age // 86400)} days."
+                ),
+            ))
+
+    return issues
+
+
 def run_lint(vault: Path | None = None, scope: str = "production_safety") -> dict:
     """지정된 scope의 lint 룰을 실행하고 결과를 반환한다."""
     vault = vault or get_vault_path()
@@ -266,6 +395,10 @@ def run_lint(vault: Path | None = None, scope: str = "production_safety") -> dic
         check_missing_created,
         check_missing_tags,
         check_dangling_candidate,
+        check_revisit_when_time_hint,
+        check_orphaned_note,
+        check_inbox_aging,
+        check_unprocessed_candidate,
     ]
 
     if scope == "production_safety":
