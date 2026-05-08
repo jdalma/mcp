@@ -238,6 +238,41 @@ def test_format_advice_fences_excerpts_escape_backticks():
     assert len(fence_opens) % 2 == 0, "Fenced blocks must be properly opened and closed"
 
 
+def test_historical_negative_from_decision_status_frontmatter():
+    """decision_status: superseded인 active 결정은 historical_negative로 분류된다."""
+    from advisor import build_advice
+
+    # archive 경로가 아닌 active_decision이지만 decision_status: superseded
+    results = _result([
+        _entry(
+            "01 Notes/Decision - Deprecated API.md",
+            "# Decision: Deprecated API\n\n## Decision\n구형 API 사용.\n",
+            {
+                "title": "Decision - Deprecated API",
+                "type": "decision",
+                "status": "decided",
+                "path_role": "active_decision",
+                "decision_status": "superseded",
+                "superseded_by": "",
+            },
+            distance=0.1,
+        )
+    ])
+
+    advice = build_advice("deprecated API를 써도 될까?", results)
+
+    # decision_status: superseded이므로 historical_negative 또는 decided_stale이어야 함
+    # (path_role이 archive가 아니어도 frontmatter로 판정)
+    assert advice["authority_level"] in {"historical_negative", "decided_stale"}, (
+        f"decision_status: superseded인 결정이 {advice['authority_level']!r}로 분류됨 — "
+        "historical_negative 또는 decided_stale이어야 함"
+    )
+    # recommended_action은 do_not_proceed 또는 ask_confirmation이어야 함
+    assert advice["recommended_action"] in {"do_not_proceed", "ask_confirmation"}, (
+        f"superseded 결정에 대해 {advice['recommended_action']!r} 반환됨"
+    )
+
+
 def test_replacement_pointer_attached_to_stale():
     """superseded 결정의 basis 또는 next_steps에 replacement_pointer가 포함돼야 한다."""
     from advisor import build_advice
