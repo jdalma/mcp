@@ -52,3 +52,49 @@ def test_read_decision_rejects_inbox_files(tmp_path, monkeypatch):
     result = asyncio.run(server.read_decision("00 Inbox/Raw.md"))
 
     assert result == "File not found: 00 Inbox/Raw.md"
+
+
+def test_read_decision_rejects_dotdot_escape(tmp_path, monkeypatch):
+    import server
+
+    vault = tmp_path / "vault"
+    (vault / "01 Notes").mkdir(parents=True)
+
+    monkeypatch.setattr(server, "get_vault_path", lambda: vault)
+
+    result = asyncio.run(server.read_decision("../../../etc/passwd"))
+
+    assert "File not found" in result
+
+
+def test_read_decision_rejects_outside_symlink(tmp_path, monkeypatch):
+    import server
+
+    vault = tmp_path / "vault"
+    notes = vault / "01 Notes"
+    notes.mkdir(parents=True)
+
+    outside = tmp_path / "secret.md"
+    outside.write_text("secret content", encoding="utf-8")
+
+    symlink = notes / "evil-link.md"
+    symlink.symlink_to(outside)
+
+    monkeypatch.setattr(server, "get_vault_path", lambda: vault)
+
+    result = asyncio.run(server.read_decision("01 Notes/evil-link.md"))
+
+    assert result != "secret content"
+
+
+def test_read_decision_rejects_absolute_path_injection(tmp_path, monkeypatch):
+    import server
+
+    vault = tmp_path / "vault"
+    (vault / "01 Notes").mkdir(parents=True)
+
+    monkeypatch.setattr(server, "get_vault_path", lambda: vault)
+
+    result = asyncio.run(server.read_decision("/etc/passwd"))
+
+    assert "File not found" in result
