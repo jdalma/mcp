@@ -33,20 +33,41 @@ _index_lock = asyncio.Lock()
 ALLOWED_READ_PREFIXES = ("01 Notes/", "02 Maps/", "03 Sources/", "99 Archive/")
 
 
+def _check_embedding_model_mismatch(collection, current_model: str) -> bool:
+    """collection 메타의 embedding_model_id와 현재 설정을 비교한다.
+
+    불일치 시 logger.warning을 남기고 True를 반환한다.
+    """
+    stored_model = (collection.metadata or {}).get("embedding_model_id", "")
+    if stored_model and stored_model != current_model:
+        logger.warning(
+            "Embedding model mismatch: index was built with %r but current model is %r. "
+            "Run reindex(force=True) to rebuild.",
+            stored_model,
+            current_model,
+        )
+        return True
+    return False
+
+
 def _init_collection():
     """임베딩 모델과 ChromaDB를 초기화하고 collection을 반환한다."""
     import chromadb
     from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
     logger.info("Initializing embedding model and ChromaDB...")
-    embedding_fn = SentenceTransformerEmbeddingFunction(
-        model_name=get_embedding_model()
-    )
+    model_name = get_embedding_model()
+    embedding_fn = SentenceTransformerEmbeddingFunction(model_name=model_name)
     chroma_client = chromadb.PersistentClient(path=str(get_chroma_dir()))
     collection = chroma_client.get_or_create_collection(
         name=COLLECTION_NAME,
         embedding_function=embedding_fn,
     )
+    # embedding_model_id 저장 (최초 생성 시 또는 변경 시)
+    stored_model = (collection.metadata or {}).get("embedding_model_id", "")
+    if stored_model != model_name:
+        _check_embedding_model_mismatch(collection, model_name)
+        collection.modify(metadata={"embedding_model_id": model_name})
     count = build_index(collection)
     logger.info("Initialization complete: indexed %d documents.", count)
     return collection
