@@ -340,11 +340,15 @@ async def reindex(force: bool = False) -> str:
     """vault 파일이 변경된 후 embedding 인덱스를 재구축한다.
 
     Args:
-        force: True면 전체 리빌드, False면 증분 업데이트
+        force: True면 swap 프로토콜로 전체 리빌드, False면 증분 업데이트
     """
     t0 = time.monotonic()
-    async with _index_lock:
-        count = build_index(_ensure_initialized(), force=force)
+    if force:
+        await _swap_collection()
+        count = _collection.count() if _collection is not None else 0
+    else:
+        async with _index_lock:
+            count = build_index(_ensure_initialized(), force=False)
     elapsed = (time.monotonic() - t0) * 1000
     log_call(
         tool="reindex",
