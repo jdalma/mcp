@@ -10,6 +10,14 @@ from config import INDEX_PATTERNS, get_vault_path
 
 logger = logging.getLogger(__name__)
 
+# build_index 실행 후 비대칭 conflicts_with 선언 목록 (모듈 글로벌)
+_asymmetric_conflicts: list[str] = []
+
+
+def get_asymmetric_conflicts() -> list[str]:
+    """마지막 build_index에서 감지된 비대칭 conflicts_with 경로 목록을 반환한다."""
+    return list(_asymmetric_conflicts)
+
 
 def _metadata_list(value) -> str:
     """Convert YAML scalar/list metadata to Chroma-friendly text."""
@@ -261,4 +269,52 @@ def build_index(
         collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
     logger.info("Indexed %d documents (%d updated).", collection.count(), len(ids))
+
+    # 양방향 conflicts_with 무결성 검증
+    _check_asymmetric_conflicts(collection)
+
     return collection.count()
+
+
+def _check_asymmetric_conflicts(collection) -> None:
+    """전체 인덱스에서 conflicts_with 양방향 선언이 누락된 항목을 감지한다."""
+    global _asymmetric_conflicts
+
+    all_docs = collection.get(include=["metadatas"])
+    # title → relative_path 매핑
+    title_to_path: dict[str, str] = {}
+    for doc_id, meta in zip(all_docs["ids"], all_docs["metadatas"]):
+        title = meta.get("title", "")
+        if title:
+            title_to_path[title] = doc_id
+
+    # relative_path → conflicts_with 텍스트
+    path_to_conflicts: dict[str, str] = {}
+    for doc_id, meta in zip(all_docs["ids"], all_docs["metadatas"]):
+        cw = meta.get("conflicts_with", "")
+        if cw:
+            path_to_conflicts[doc_id] = cw
+
+    asymmetric: list[str] = []
+    for path, conflicts_text in path_to_conflicts.items():
+        declaring_title = None
+        for title, p in title_to_path.items():
+            if p == path:
+                declaring_title = title
+                break
+
+        # conflicts_text에 언급된 각 상대방이 역방향으로도 선언했는지 확인
+        for other_title, other_path in title_to_path.items():
+            if other_path == path:
+                continue
+            if other_title not in conflicts_text and other_path not in conflicts_text:
+                continue
+            # 상대방이 역방향으로 선언했는지 확인
+            other_conflicts = path_to_conflicts.get(other_path, "")
+            if declaring_title and declaring_title not in other_conflicts and path not in other_conflicts:
+                asymmetric.append(path)
+                break
+
+    _asymmetric_conflicts = asymmetric
+    if asymmetric:
+        logger.warning("Asymmetric conflicts_with declarations: %s", asymmetric)

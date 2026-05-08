@@ -52,6 +52,33 @@ def test_decision_timeline():
     assert result.index("Decision B") < result.index("Decision A")
 
 
+def test_stats_asymmetric_conflicts():
+    """get_stats 응답에 asymmetric_conflicts 카운트가 포함되어야 한다."""
+    import importlib
+
+    import indexer
+
+    # 비대칭 목록을 강제로 세팅
+    indexer._asymmetric_conflicts = ["01 Notes/Decision - A.md"]
+
+    from tools_extra import get_stats
+
+    class FakeCollection:
+        def get(self, include=None):
+            return {
+                "ids": ["doc1"],
+                "metadatas": [{"type": "decision", "status": "decided"}],
+            }
+
+    result = get_stats(FakeCollection())
+    assert "asymmetric_conflicts: 1" in result, (
+        f"asymmetric_conflicts 카운트 미포함. result={result!r}"
+    )
+
+    # 정리
+    indexer._asymmetric_conflicts = []
+
+
 def test_decision_timeline_empty():
     from tools_extra import get_decision_timeline
 

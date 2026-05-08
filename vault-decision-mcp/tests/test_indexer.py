@@ -264,6 +264,55 @@ def test_incremental_index_deletes_removed_files():
         assert count2 == 1
 
 
+def test_asymmetric_conflicts_detected():
+    """A가 conflicts_with B를 선언했지만 B는 선언 안 한 경우 비대칭 감지."""
+    import chromadb
+
+    from indexer import build_index
+
+    sample_a = """---
+type: decision
+status: decided
+conflicts_with: "Decision - B"
+---
+
+# Decision: A
+
+## Decision
+
+A 채택.
+"""
+    sample_b = """---
+type: decision
+status: decided
+---
+
+# Decision: B
+
+## Decision
+
+B 채택.
+"""
+
+    client = chromadb.Client()
+    collection = client.create_collection("test_asymmetric")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault = Path(tmpdir)
+        notes = vault / "01 Notes"
+        notes.mkdir()
+        (notes / "Decision - A.md").write_text(sample_a)
+        (notes / "Decision - B.md").write_text(sample_b)
+
+        build_index(collection, vault_path=vault, force=True)
+
+        from indexer import get_asymmetric_conflicts
+        asymmetric = get_asymmetric_conflicts()
+        assert any("Decision - A" in path for path in asymmetric), (
+            f"비대칭 conflicts 미감지: asymmetric={asymmetric}"
+        )
+
+
 def test_prepare_includes_frontmatter_context():
     """frontmatter context 필드가 search_text(document)에 포함되는지 검증.
 

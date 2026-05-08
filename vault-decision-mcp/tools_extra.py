@@ -5,6 +5,8 @@ from config import get_vault_path
 
 def get_stats(collection) -> str:
     """인덱스 상태를 반환한다."""
+    import indexer
+
     all_docs = collection.get(include=["metadatas"])
     total = len(all_docs["ids"])
 
@@ -20,9 +22,12 @@ def get_stats(collection) -> str:
         status = meta.get("status", "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
 
+    asymmetric_count = len(indexer.get_asymmetric_conflicts())
+
     lines = [
         "## Vault Index Stats\n",
         f"Total documents: {total}\n",
+        f"asymmetric_conflicts: {asymmetric_count}\n",
         "### By Type",
     ]
     for t, count in sorted(type_counts.items(), key=lambda x: -x[1]):
