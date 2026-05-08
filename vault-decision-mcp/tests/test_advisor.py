@@ -238,6 +238,47 @@ def test_format_advice_fences_excerpts_escape_backticks():
     assert len(fence_opens) % 2 == 0, "Fenced blocks must be properly opened and closed"
 
 
+def test_basis_section_toc_field_on_long_document():
+    """본문 1000자+ 문서에서 basis[0].section_toc에 H2 헤딩 목록이 있어야 한다."""
+    from advisor import build_advice
+
+    long_body = (
+        "## Decision\n\n" + "A" * 200 + "\n\n"
+        "## Rationale\n\n" + "B" * 200 + "\n\n"
+        "## Consequences\n\n" + "C" * 200 + "\n\n"
+        "## Open questions\n\n" + "D" * 200 + "\n\n"
+        "## Revisit when\n\n" + "E" * 200 + "\n"
+    )
+    assert len(long_body) > 1000
+
+    results = _result([
+        _entry(
+            "01 Notes/Decision - Long Doc.md",
+            f"# Decision: Long Doc\n\n{long_body}",
+            {
+                "title": "Decision - Long Doc",
+                "type": "decision",
+                "status": "decided",
+                "path_role": "active_decision",
+            },
+            distance=0.1,
+        )
+    ])
+
+    advice = build_advice("Long Doc에 대한 결정은?", results)
+    basis = advice.get("basis", [])
+    assert basis, "basis가 비어있음"
+
+    section_toc = basis[0].get("section_toc")
+    assert section_toc is not None, "basis[0]에 section_toc 필드가 없음"
+
+    expected_headings = ["Decision", "Rationale", "Consequences", "Open questions", "Revisit when"]
+    for heading in expected_headings:
+        assert heading in section_toc, (
+            f"section_toc에 '{heading}' 헤딩이 없음: {section_toc!r}"
+        )
+
+
 def test_basis_section_toc_fallback_when_no_decision_section():
     """## Decision 섹션이 없는 긴 문서에서 decision_excerpt가 TOC 형태로 반환된다."""
     from advisor import build_advice

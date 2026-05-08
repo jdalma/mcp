@@ -48,6 +48,19 @@ def _replacement_pointer(meta: dict[str, Any], body: str) -> str:
     return ""
 
 
+_H2_PATTERN = re.compile(r"^##\s+(.+)$", re.MULTILINE)
+
+
+def _section_toc(document: str) -> str | None:
+    """본문 1000자+ 일 때 H2 헤딩 목록을 반환한다."""
+    if len(document) < 1000:
+        return None
+    headings = _H2_PATTERN.findall(document)
+    if not headings:
+        return None
+    return ", ".join(headings)
+
+
 def _basis(entry: dict[str, Any]) -> dict[str, Any]:
     meta = entry.get("metadata", {})
     document = str(entry.get("document", ""))
@@ -66,6 +79,9 @@ def _basis(entry: dict[str, Any]) -> dict[str, Any]:
     }
     if pointer:
         result["replacement_pointer"] = pointer
+    toc = _section_toc(document)
+    if toc:
+        result["section_toc"] = toc
     return result
 
 
