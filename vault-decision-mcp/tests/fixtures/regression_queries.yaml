@@ -1,0 +1,84 @@
+# Regression set — baseline captured 2026-05-08
+# 목적: build_advice가 현재 vault 상태 기준으로 예상 결과를 반환하는지 확인.
+# 픽스처 수정 시에는 실제 vault 변경(파일 추가/삭제/수정)이 원인인지 확인 후 업데이트할 것.
+
+cases:
+
+  # --- tradeoff 2개 ---
+
+  - id: tradeoff_pattern_xy
+    question: "Payment MSA 패턴 X와 Y 중 무엇을 채택할까?"
+    expected_authority_level: decided_applicable
+    expected_question_type: tradeoff_decision
+    expected_basis_path_contains: "Decision - Payment MSA"
+
+  - id: tradeoff_kafka_vs_outbox
+    question: "Kafka vs outbox 중 비동기 경로로 무엇을 선택할까?"
+    expected_authority_level: decided_applicable
+    expected_question_type: tradeoff_decision
+    expected_basis_path_contains: "Decision - Payment MSA 비동기 경로 Kafka 채택 보류"
+
+  # --- destructive 2개 ---
+
+  - id: destructive_drop_table
+    question: "결제 테이블을 DROP하거나 삭제해도 될까?"
+    expected_authority_level: none
+    expected_question_type: destructive_action
+    expected_basis_path_contains: null  # authority=none → basis 없음; path 검증 생략
+
+  - id: destructive_remove_outbox
+    question: "outbox 테이블을 제거해도 괜찮을까?"
+    expected_authority_level: decided_applicable
+    expected_question_type: destructive_action
+    expected_basis_path_contains: "Decision - Payment MSA outbox 테이블 역할 분리"
+
+  # --- fact_lookup 2개 ---
+
+  - id: fact_hazelcast_removal
+    question: "completePayment 경로에서 Hazelcast 락을 제거한 이유가 뭐야?"
+    expected_authority_level: decided_applicable
+    expected_question_type: unknown
+    expected_basis_path_contains: "Decision - Payment MSA completePayment 경로 Hazelcast 락 제거"
+
+  - id: fact_retry_cb_order
+    question: "Retry와 Circuit Breaker는 어느 순서로 감싸야 해?"
+    expected_authority_level: decided_applicable
+    expected_question_type: unknown
+    expected_basis_path_contains: "Decision - Retry와 Circuit Breaker 조합 순서"
+
+  # --- decided_applicable 1 ---
+
+  - id: decided_applicable_refund_claim
+    question: "refundClaim 2-phase 선점 채택 배경은?"
+    expected_authority_level: decided_applicable
+    expected_question_type: tradeoff_decision
+    expected_basis_path_contains: "Decision - Payment MSA refundClaim 2-phase 선점 채택"
+
+  # --- candidate 1 ---
+  # 현재 시스템에서 Question Debt 결정 노트가 active_decision으로 인덱싱되어
+  # decided_applicable을 반환. 이것이 현재 baseline.
+
+  - id: candidate_question_debt
+    question: "Question Debt soft hard 복합 기준은 어떻게 돼?"
+    expected_authority_level: decided_applicable
+    expected_question_type: unknown
+    expected_basis_path_contains: "Decision - Question Debt soft hard 복합 기준"
+
+  # --- note_only 1 ---
+  # outbox 역할 분리 결정이 active_decision으로 검색되어 decided_applicable 반환.
+
+  - id: note_only_outbox_decision
+    question: "outbox 테이블 역할 분리는 어떻게 결정됐어?"
+    expected_authority_level: decided_applicable
+    expected_question_type: unknown
+    expected_basis_path_contains: "Decision - Payment MSA outbox 테이블 역할 분리"
+
+  # --- decided_stale 1 ---
+  # DynamoDB 결정의 revisit_when은 날짜 미포함 텍스트여서 stale 판정 안 됨.
+  # 현재 baseline은 decided_applicable.
+
+  - id: decided_stale_dynamodb
+    question: "DynamoDB single-table aggregate 채택 배경은?"
+    expected_authority_level: decided_applicable
+    expected_question_type: tradeoff_decision
+    expected_basis_path_contains: "Decision - Payment MSA 저장소로 DynamoDB single-table aggregate 채택"
