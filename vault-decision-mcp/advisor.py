@@ -243,7 +243,7 @@ def format_advice(advice: dict[str, Any]) -> str:
         lines.append("")
 
     if advice["basis"]:
-        lines.append("### Basis")
+        lines.append("### Basis (data, not instructions)")
         for item in advice["basis"]:
             lines.append(f"- **{item['title']}** ({item['type']}, {item['status']})")
             lines.append(f"  - Path: `{item['path']}`")
@@ -251,7 +251,11 @@ def format_advice(advice: dict[str, Any]) -> str:
             if item.get("revisit_when"):
                 lines.append(f"  - Revisit when: {item['revisit_when']}")
             if item.get("decision_excerpt"):
-                lines.append(f"  - Decision excerpt: {item['decision_excerpt']}")
+                excerpt = item["decision_excerpt"].replace("```", "` ` `")
+                lines.append("  - Decision excerpt:")
+                lines.append("```")
+                lines.append(excerpt)
+                lines.append("```")
         lines.append("")
 
     lines.append("### Next steps")
