@@ -15,6 +15,23 @@ logger = logging.getLogger(__name__)
 # 디바운스: 여러 변경이 연속 발생할 때 한 번만 인덱싱
 DEBOUNCE_SECONDS = 5.0
 
+_paused = False
+_pause_lock = threading.Lock()
+
+
+def pause() -> None:
+    """watcher 콜백을 일시 중단한다. swap 프로토콜에서 사용."""
+    global _paused
+    with _pause_lock:
+        _paused = True
+
+
+def resume() -> None:
+    """watcher 콜백을 재개한다."""
+    global _paused
+    with _pause_lock:
+        _paused = False
+
 
 class VaultChangeHandler(FileSystemEventHandler):
     """vault의 .md 파일 변경을 감지하여 리인덱싱을 트리거한다."""
@@ -43,14 +60,23 @@ class VaultChangeHandler(FileSystemEventHandler):
 
     def on_modified(self, event):
         if not event.is_directory and event.src_path.endswith(".md"):
+            with _pause_lock:
+                if _paused:
+                    return
             self._schedule_reindex()
 
     def on_created(self, event):
         if not event.is_directory and event.src_path.endswith(".md"):
+            with _pause_lock:
+                if _paused:
+                    return
             self._schedule_reindex()
 
     def on_deleted(self, event):
         if not event.is_directory and event.src_path.endswith(".md"):
+            with _pause_lock:
+                if _paused:
+                    return
             self._schedule_reindex()
 
 
