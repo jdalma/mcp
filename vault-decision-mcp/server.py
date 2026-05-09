@@ -298,17 +298,17 @@ async def decision_timeline() -> str:
 
 
 @mcp.tool()
-async def lint(scope: str = "production_safety") -> dict:
-    """vault 위생 점검을 실행하고 이슈 목록을 반환한다.
+async def lint() -> dict:
+    """vault 위생 점검 (production_safety 4 룰)을 실행하고 이슈 목록을 반환한다.
 
-    Args:
-        scope: 점검 범위 — "production_safety" | "writing_hygiene" | "all"
+    Rules:
+        stale_decision / asymmetric_conflict / index_drift / superseded_dangling
     """
     t0 = time.monotonic()
-    result = run_lint(vault=get_vault_path(), scope=scope)
+    result = run_lint(vault=get_vault_path())
     log_call(
         tool="lint",
-        inputs={"scope": scope},
+        inputs={},
         result_summary={"total": result["summary"]["total"]},
         elapsed_ms=(time.monotonic() - t0) * 1000,
     )
