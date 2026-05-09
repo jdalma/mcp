@@ -191,18 +191,9 @@ native FSEvents보다 늦고 CPU 약간 더 씀. 동기 폴더에서 안정성�
 ### 3. mtime 정확도
 파일시스템이 mtime을 안 바꾸는 도구로 수정하면(`touch -t` 등) 인덱싱 누락 가능. `reindex(force=True)`로 전체 리빌드.
 
-### 4. 임베딩 모델 동기화 — startup mismatch 검증 (P1.5)
+### 4. 임베딩 모델 변경
 
-P1.5에서 `pyproject.toml`에 `chromadb==1.5.7`, `sentence-transformers==5.4.1` 버전 핀.
-
-`_init_collection`은 collection 메타에 `embedding_model_id`를 저장한다. startup 시 stored 값과 현재 `VAULT_EMBEDDING_MODEL` env가 다르면 `_check_embedding_model_mismatch`가 logger.warning으로 알린다:
-
-```
-WARNING: Embedding model mismatch: index was built with 'old/model' but
-current model is 'new/model'. Run reindex(force=True) to rebuild.
-```
-
-→ 사용자가 모델을 바꿨음을 명시적으로 인지 + `reindex(force=True)`로 swap 프로토콜 트리거. silent re-embedding 차단.
+`pyproject.toml`에 `chromadb==1.5.7`, `sentence-transformers==5.4.1` 버전 핀. 모델을 의식적으로 바꿀 때 `reindex(force=True)`로 인덱스 재구축. (P1.5에서 도입했던 startup mismatch 자동 검증은 Approach B에서 제거됨 — 사용자가 모델을 silent하게 바꾸는 시나리오 거의 0이라 가상 위협 방어로 판단.)
 
 ## 수동 도구
 
@@ -211,73 +202,20 @@ current model is 'new/model'. Run reindex(force=True) to rebuild.
 ```python
 @mcp.tool()
 async def reindex(force: bool = False) -> str:
-    if force:
-        await _swap_collection()  # 신규: atomic swap 프로토콜
-        return "Reindex complete via swap protocol."
     async with _index_lock:
-        count = build_index(_ensure_initialized(), force=False)
+        if force:
+            client.delete_collection(COLLECTION_NAME)
+            _collection = client.get_or_create_collection(name=COLLECTION_NAME, embedding_function=fn)
+            count = build_index(_collection, force=True)
+        else:
+            count = build_index(_ensure_initialized(), force=False)
     return f"Reindex complete. {count} documents indexed."
 ```
 
-- `force=False` (기본) — mtime 비교 증분 갱신 (기존 흐름).
-- `force=True` — **atomic swap 프로토콜**(`_swap_collection`) 호출. 옛 컬렉션 보존 상태에서 신규 컬렉션 빌드 → 검증 → 핸들 교체. 검증 실패 시 자동 롤백.
+- `force=False` (기본) — mtime 비교 증분 갱신.
+- `force=True` — 옛 collection 통째 삭제 후 재빌드.
 
-## Swap 프로토콜 (`_swap_collection`)
-
-P1.5.2 도입. *"기존 컬렉션을 먼저 지우고 새로 만드는"* 옛 방식이 도중 실패 시 broken state를 남기는 문제 해소.
-
-### 9-step 시퀀스
-
-```
-1. async with _index_lock        # 직렬화
-2. watcher.pause()                # 파일 변경 콜백 차단
-3. client.get_or_create_collection(
-       name=f"{COLLECTION_NAME}_{ts_ms}",
-       embedding_function=embedding_fn,
-   )
-4. build_index(new_col, force=True)  # 신규 컬렉션에 vault 전체 인덱싱
-5. validate(new_col)                  # 선택적 검증 콜백
-   - 실패 시 → client.delete_collection(new_name) + watcher.resume() + return
-6. delete_collection(_previous_collection_name)  # 2세대 전 정리
-7. _collection = new_col          # 글로벌 핸들 교체
-   _previous_collection_name = old.name  # 옛 1세대 보존
-8. watcher.resume()
-9. lock 해제 (context manager)
-```
-
-### chromadb 라이브러리 제약
-
-- `collection.modify(name=...)` 의 name 파라미터가 **존재하지 않음**. 따라서 *"기존 컬렉션 rename"* 은 불가능. swap = "신규 생성 + 핸들 교체"만 가능.
-- 로컬 `PersistentClient`는 동일 persistence 경로에 process-safe 동시 writer 보장 안 함. 따라서 swap은 단일 프로세스 내에서만 안전. `_index_lock` + `watcher.pause()` 가 이 제약을 보완.
-
-### 1세대 보존의 의미
-
-옛 컬렉션을 **즉시 삭제하지 않고** `_previous_collection_name`에 보관 → 다음 swap 시점에 *"옛 옛"*(2세대 전) 컬렉션을 정리. 이유:
-
-- 진행 중 advise/query 요청이 옛 컬렉션 핸들을 캡처해 잡고 있을 수 있음. 그 응답이 끝나기 전에 옛 컬렉션을 삭제하면 race condition.
-- 1세대 보존은 *"진행 중 요청이 자기 응답까지는 옛 핸들로 정상 완료, 다음 요청부터 새 핸들"* 보장.
-
-### 검증 콜백 (`validate` 인자)
-
-`_swap_collection(*, validate=None)` 호출 시 `validate(new_col)` 가 False/falsy 반환하면 swap 취소 + 신규 컬렉션 삭제. `_collection` 글로벌은 옛 핸들 그대로 유지.
-
-권장 검증 게이트 3개 (Phase 1.5.6 production rebuild에서 활용):
-1. **file count**: `new_col.count()` ↔ vault의 INDEX_PATTERNS 매칭 파일 수 일치
-2. **content_hash**: 각 파일 메타의 `content_hash` 일치
-3. **regression set**: `tests/test_regression.py`의 10건이 신규 컬렉션 위에서도 expected `authority_level` 반환 (10건은 production 인덱스 의존이라 unit test에선 conditional skip)
-
-### 롤백 경로
-
-검증 실패 또는 build_index 예외 시:
-- `client.delete_collection(new_name)`
-- `watcher.resume()`
-- `_collection` 옛 핸들 유지 — 사용자에게 보이는 vault advice는 끊김 없음
-
-### `watcher.pause()` / `resume()`
-
-`watcher.py` 모듈 레벨 `_paused` 플래그 + `threading.Lock`. handler의 `on_modified`/`on_created`/`on_deleted`에서 `_paused` True면 즉시 return. swap 도중 vault에 변경이 들어와도 indexing 큐에 안 들어가서 collision 차단.
-
-⚠️ chromadb 라이브러리는 watchdog Observer의 `unschedule_all()` 같은 일급 pause API를 제공하지 않음. 위 모듈 플래그 방식이 우회.
+도중 실패 시 broken state 가능성 있으나, 사용자 환경(1명, 1년 0~1회 호출)에선 단순 재호출로 복구 가능. (Phase 1.5.2 atomic swap 프로토콜 9-step + 1세대 보존은 Approach B에서 제거. 사유: 사용자 본인 평가 *"swap 기능을 구현할만큼 무중단 인덱싱 보장이 필요한 상황 아님"*.)
 
 ### 서버 재시작 시 자동 동작
 
