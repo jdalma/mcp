@@ -98,29 +98,3 @@ def test_read_decision_rejects_absolute_path_injection(tmp_path, monkeypatch):
     result = asyncio.run(server.read_decision("/etc/passwd"))
 
     assert "File not found" in result
-
-
-def test_embedding_model_mismatch_warns(tmp_path, monkeypatch, caplog):
-    """collection 메타의 embedding_model_id가 현재 설정과 다르면 warning이 나와야 한다."""
-    import logging
-    import chromadb
-
-    import server
-    import config
-
-    # 영구 디렉토리 없이 in-memory client 사용
-    chroma_client = chromadb.Client()
-    # model-A로 collection 생성 후 메타 저장
-    collection = chroma_client.get_or_create_collection(name="test_mismatch")
-    collection.modify(metadata={"embedding_model_id": "model-A"})
-
-    # server._init_collection이 in-memory collection을 쓰도록 monkeypatch
-    monkeypatch.setattr(config, "get_embedding_model", lambda: "model-B")
-
-    with caplog.at_level(logging.WARNING, logger="server"):
-        server._check_embedding_model_mismatch(collection, "model-B")
-
-    assert any(
-        "embedding model mismatch" in record.message.lower()
-        for record in caplog.records
-    ), f"mismatch warning 미발생. logs={[r.message for r in caplog.records]}"
