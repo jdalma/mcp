@@ -12,7 +12,8 @@
 | `revisit_when` | 자유 텍스트 + 날짜 | stale 자동 만료 트리거 |
 | `decided_on` | 날짜 | timeline 정렬 키 |
 | `created`, `updated` | 날짜 | 표시용 |
-| `conflicts_with` | 자유 텍스트 | 충돌 감지 |
+| `conflicts_with` | 자유 텍스트 | 충돌 감지 (P1.2: 양방향 무결성 검증) |
+| `superseded_by` | 자유 텍스트 ([[wikilink]] 권장) | P3.1: stale decision의 자동 replacement_pointer |
 | `decision_candidates` | 배열 (note 전용) | candidate 버킷 분류 |
 | `tags` | 배열 | 임베딩에 포함, 표시 |
 | `mocs` | 배열 | 표시 (MCP는 미사용) |
@@ -62,6 +63,24 @@
 | `retired` | 은퇴 |
 
 → 결정을 죽일 때 본문 지우지 말고 이 한 줄만 추가. 검색엔 잡히지만 권한은 박탈된다.
+
+**P3.2 변경**: 이 필드는 이제 `_is_historical_negative` 판정의 **1차 매칭 키**이기도 함. archive 폴더 + 본문 키워드(`폐기`/`대체`/...) 매칭 방식은 보조로 강등. frontmatter에 명시적으로 `decision_status` 적힌 결정은 본문에 거부 키워드 없어도 `historical_negative` 신호 발동.
+
+### `superseded_by` (P3.1 신설, decision 전용)
+
+결정이 다른 결정으로 대체됐을 때 새 결정을 가리키는 frontmatter 필드.
+
+```yaml
+---
+type: decision
+decision_status: superseded
+superseded_by: "[[Decision - 새 결정 제목]]"
+---
+```
+
+**효과**: `advise()` 응답에서 이 옛 결정이 stale로 잡힐 때 `basis[0].replacement_pointer` 또는 `next_steps`에 *"See [[Decision - 새 결정]]"* 자동 첨부 → Claude가 한 번에 새 결정으로 안내.
+
+본문 `## Superseded by [[X]]` 섹션과 동시 존재 시 frontmatter 우선. 본문은 사람용 reference로 보존.
 
 ### `revisit_when`
 
