@@ -30,112 +30,9 @@ logger = logging.getLogger(__name__)
 
 _collection = None
 _chroma_client = None
-_previous_collection_name: str | None = None
 _observer = None
 _index_lock = asyncio.Lock()
 ALLOWED_READ_PREFIXES = ("01 Notes/", "02 Maps/", "03 Sources/", "99 Archive/")
-
-
-async def _swap_collection(*, validate=None) -> None:
-    """atomic collection swap with 2-generation deferred deletion.
-
-    Steps:
-    1. Acquire _index_lock
-    2. watcher.pause()
-    3. Create new timestamped collection + build_index
-    4. validate gate (rollback on failure)
-    5. Swap _collection global
-    6. Delete _previous_collection_name (2nd generation)
-    7. Store old name as _previous_collection_name
-    8. watcher.resume()
-    9. Release lock (via context manager)
-    """
-    import chromadb as _chromadb
-    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-
-    global _collection, _chroma_client, _previous_collection_name
-
-    async with _index_lock:
-        try:
-            import watcher as _watcher
-            _watcher.pause()
-        except Exception:
-            pass
-
-        client = _chroma_client
-        if client is None:
-            client = _chromadb.PersistentClient(path=str(get_chroma_dir()))
-
-        model_name = get_embedding_model()
-        embedding_fn = SentenceTransformerEmbeddingFunction(model_name=model_name)
-
-        new_name = f"{COLLECTION_NAME}_{int(time.time() * 1000)}"
-        new_col = client.get_or_create_collection(
-            name=new_name,
-            embedding_function=embedding_fn,
-        )
-
-        try:
-            build_index(new_col, force=True)
-        except Exception:
-            try:
-                client.delete_collection(new_name)
-            except Exception:
-                pass
-            try:
-                import watcher as _watcher
-                _watcher.resume()
-            except Exception:
-                pass
-            raise
-
-        if validate is not None and not validate(new_col):
-            try:
-                client.delete_collection(new_name)
-            except Exception:
-                pass
-            try:
-                import watcher as _watcher
-                _watcher.resume()
-            except Exception:
-                pass
-            return
-
-        old_col = _collection
-        old_name = old_col.name if old_col is not None else None
-
-        # delete 2nd-generation previous
-        if _previous_collection_name is not None:
-            try:
-                client.delete_collection(_previous_collection_name)
-            except Exception:
-                pass
-
-        _collection = new_col
-        _previous_collection_name = old_name
-
-        try:
-            import watcher as _watcher
-            _watcher.resume()
-        except Exception:
-            pass
-
-
-def _check_embedding_model_mismatch(collection, current_model: str) -> bool:
-    """collection 메타의 embedding_model_id와 현재 설정을 비교한다.
-
-    불일치 시 logger.warning을 남기고 True를 반환한다.
-    """
-    stored_model = (collection.metadata or {}).get("embedding_model_id", "")
-    if stored_model and stored_model != current_model:
-        logger.warning(
-            "Embedding model mismatch: index was built with %r but current model is %r. "
-            "Run reindex(force=True) to rebuild.",
-            stored_model,
-            current_model,
-        )
-        return True
-    return False
 
 
 def _init_collection():
@@ -143,19 +40,16 @@ def _init_collection():
     import chromadb
     from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
+    global _chroma_client
+
     logger.info("Initializing embedding model and ChromaDB...")
     model_name = get_embedding_model()
     embedding_fn = SentenceTransformerEmbeddingFunction(model_name=model_name)
-    chroma_client = chromadb.PersistentClient(path=str(get_chroma_dir()))
-    collection = chroma_client.get_or_create_collection(
+    _chroma_client = chromadb.PersistentClient(path=str(get_chroma_dir()))
+    collection = _chroma_client.get_or_create_collection(
         name=COLLECTION_NAME,
         embedding_function=embedding_fn,
     )
-    # embedding_model_id 저장 (최초 생성 시 또는 변경 시)
-    stored_model = (collection.metadata or {}).get("embedding_model_id", "")
-    if stored_model != model_name:
-        _check_embedding_model_mismatch(collection, model_name)
-        collection.modify(metadata={"embedding_model_id": model_name})
     count = build_index(collection)
     logger.info("Initialization complete: indexed %d documents.", count)
     return collection
@@ -341,14 +235,29 @@ async def reindex(force: bool = False) -> str:
     """vault 파일이 변경된 후 embedding 인덱스를 재구축한다.
 
     Args:
-        force: True면 swap 프로토콜로 전체 리빌드, False면 증분 업데이트
+        force: True면 collection을 통째 삭제 후 재빌드, False면 mtime 증분
     """
+    import chromadb
+    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+
+    global _collection, _chroma_client
+
     t0 = time.monotonic()
-    if force:
-        await _swap_collection()
-        count = _collection.count() if _collection is not None else 0
-    else:
-        async with _index_lock:
+    async with _index_lock:
+        if force:
+            client = _chroma_client or chromadb.PersistentClient(path=str(get_chroma_dir()))
+            try:
+                client.delete_collection(COLLECTION_NAME)
+            except Exception:
+                pass
+            embedding_fn = SentenceTransformerEmbeddingFunction(model_name=get_embedding_model())
+            _chroma_client = client
+            _collection = client.get_or_create_collection(
+                name=COLLECTION_NAME,
+                embedding_function=embedding_fn,
+            )
+            count = build_index(_collection, force=True)
+        else:
             count = build_index(_ensure_initialized(), force=False)
     elapsed = (time.monotonic() - t0) * 1000
     log_call(
