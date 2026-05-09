@@ -32,40 +32,10 @@ def _section_excerpt(document: str, heading: str, fallback_chars: int = 360) -> 
     return text[:fallback_chars]
 
 
-def _replacement_pointer(meta: dict[str, Any], body: str) -> str:
-    """frontmatter superseded_by 우선, 없으면 본문 ## Superseded by 섹션에서 추출."""
-    fm_value = str(meta.get("superseded_by", "")).strip()
-    if fm_value:
-        return fm_value
-    # 본문 fallback
-    match = re.search(
-        r"^##\s+superseded\s+by\s*\n+(.*?)(?=\n#|\Z)",
-        body,
-        re.IGNORECASE | re.MULTILINE | re.DOTALL,
-    )
-    if match:
-        return match.group(1).strip()[:200]
-    return ""
-
-
-_H2_PATTERN = re.compile(r"^##\s+(.+)$", re.MULTILINE)
-
-
-def _section_toc(document: str) -> str | None:
-    """본문 1000자+ 일 때 H2 헤딩 목록을 반환한다."""
-    if len(document) < 1000:
-        return None
-    headings = _H2_PATTERN.findall(document)
-    if not headings:
-        return None
-    return ", ".join(headings)
-
-
 def _basis(entry: dict[str, Any]) -> dict[str, Any]:
     meta = entry.get("metadata", {})
     document = str(entry.get("document", ""))
-    pointer = _replacement_pointer(meta, document)
-    result = {
+    return {
         "path": meta.get("relative_path", entry.get("id", "")),
         "title": meta.get("title", entry.get("id", "")),
         "type": meta.get("type", "unknown"),
@@ -77,12 +47,6 @@ def _basis(entry: dict[str, Any]) -> dict[str, Any]:
         "rationale_excerpt": _section_excerpt(document, "Rationale"),
         "revisit_when": meta.get("revisit_when", ""),
     }
-    if pointer:
-        result["replacement_pointer"] = pointer
-    toc = _section_toc(document)
-    if toc:
-        result["section_toc"] = toc
-    return result
 
 
 def _parse_due_date(value: str) -> date | None:
@@ -211,10 +175,6 @@ def build_advice(
     warnings: list[str] = []
     if stale_decisions:
         warnings.append("Relevant Decision exists but may be stale or superseded.")
-        for sd in stale_decisions:
-            pointer = _replacement_pointer(sd.get("metadata", {}), str(sd.get("document", "")))
-            if pointer:
-                warnings.append(f"Superseded by: {pointer}")
     if len(fresh_decisions) > 1 and not conflicting_decisions:
         warnings.append("Multiple relevant Decisions found; verify scope before proceeding.")
     if conflicting_decisions:
@@ -246,13 +206,6 @@ def build_advice(
 
     recommended_action = _recommend(question_type, authority_level)
     next_steps = _next_steps(authority_level, recommended_action)
-
-    # stale 결정에 replacement_pointer가 있으면 next_steps에 추가
-    for sd in stale_decisions:
-        pointer = _replacement_pointer(sd.get("metadata", {}), str(sd.get("document", "")))
-        if pointer:
-            next_steps = [f"See {pointer} for the current decision."] + next_steps
-            break
 
     return {
         "question": question,
