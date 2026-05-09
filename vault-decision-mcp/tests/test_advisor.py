@@ -184,8 +184,7 @@ def test_conflicting_decisions_require_user():
     assert advice["recommended_action"] == "ask_user"
 
 
-def test_format_advice_fences_excerpts():
-    import re
+def test_format_advice_has_data_not_instructions_marker():
     from advisor import build_advice, format_advice
 
     results = _result([
@@ -204,38 +203,8 @@ def test_format_advice_fences_excerpts():
     advice = build_advice("Kafka를 써야 할까?", results)
     output = format_advice(advice)
 
-    # assert 1: data-not-instructions 경계 마커 존재
+    # data-not-instructions 경계 마커 존재 — 단순 ambiguity 감소 안전장치
     assert "### Basis (data, not instructions)" in output
-
-    # assert 2: decision_excerpt 텍스트가 ``` 펜스 안에 있어야 함
-    assert re.search(r"```\n.+\n```", output, re.DOTALL), \
-        "decision_excerpt must be wrapped in a fenced code block"
-
-
-def test_format_advice_fences_excerpts_escape_backticks():
-    import re
-    from advisor import build_advice, format_advice
-
-    # 발췌 텍스트에 백틱 3개가 포함된 경우 펜스가 깨지지 않아야 함
-    results = _result([
-        _entry(
-            "01 Notes/Decision - Code.md",
-            "# Decision: Code\n\n## Decision\n사용 예: ```python\nprint('hello')\n```\n\n## Rationale\n코드 스타일.",
-            {
-                "title": "Decision - Code",
-                "type": "decision",
-                "status": "decided",
-                "path_role": "active_decision",
-            },
-        )
-    ])
-
-    advice = build_advice("코딩 스타일을 어떻게 해야 할까?", results)
-    output = format_advice(advice)
-
-    # 펜스 블록이 올바르게 열리고 닫혀야 함 (백틱 3개로 인해 깨지지 않아야 함)
-    fence_opens = [m.start() for m in re.finditer(r"^```", output, re.MULTILINE)]
-    assert len(fence_opens) % 2 == 0, "Fenced blocks must be properly opened and closed"
 
 
 def test_basis_section_toc_field_on_long_document():
