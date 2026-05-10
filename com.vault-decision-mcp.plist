@@ -13,21 +13,20 @@
 
   <key>EnvironmentVariables</key>
   <dict>
-    <key>MCP_HOST</key>
-    <string>127.0.0.1</string>
-    <key>MCP_PORT</key>
-    <string>8765</string>
+    <key>VAULT_PATH</key>
+    <string>/Users/jeonghyunjun/knowledge/memory-palace</string>
+    <key>HF_HOME</key>
+    <string>/Users/jeonghyunjun/.cache/huggingface</string>
+    <key>VAULT_DECISION_INDEX</key>
+    <string>/Users/jeonghyunjun/.cache/vault-decision-mcp/index.db</string>
   </dict>
 
-  <!-- 로그인 시 자동 시작 -->
   <key>RunAtLoad</key>
   <true/>
 
-  <!-- 크래시 시 자동 재시작 -->
   <key>KeepAlive</key>
   <true/>
 
-  <!-- 재시작 최소 간격 (초) — 빠른 반복 크래시 방지 -->
   <key>ThrottleInterval</key>
   <integer>10</integer>
 

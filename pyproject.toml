@@ -1,0 +1,29 @@
+[project]
+name = "vault-decision-mcp"
+version = "2.0.0"
+description = "MCP server for vault-grounded decision advisory (v2 — FTS5 + bge-m3 RRF)"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]",
+    "pyyaml",
+    "sentence-transformers",
+    "numpy",
+]
+
+[project.scripts]
+vault-decision-mcp = "vault_decision.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["vault_decision"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
