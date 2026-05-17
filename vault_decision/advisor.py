@@ -1,19 +1,19 @@
 """권위 판정 + 추천 액션 산출.
 
 searcher.search()가 반환한 top-15 hit을 받아:
-1) 단일 hit을 7분류로 classify
+1) 단일 hit을 분류 (canonical 단일 게이트 + path/type 분기)
 2) bucket으로 묶기
 3) 양방향 conflicts_with 위반 감지
 4) top-level authority_level + recommended_action 산출 (동일 우선순위)
 5) basis 빌드 (max_results 상한)
 6) warnings / next_steps 조립
 
-LOC 게이트 없음 (2026-05-14 결정). 동작·의미 기준만.
+Phase 3.5 (2026-05-17): frontmatter 단순화로 만료 개념·status·decision_status
+분기 제거. canonical 단일 boolean으로 권위 게이트 일원화.
 """
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any, Iterable
 
 from vault_decision.searcher import search
@@ -21,7 +21,6 @@ from vault_decision.searcher import search
 AUTHORITY_PRIORITY: tuple[str, ...] = (
     "decided_conflicting",
     "decided_applicable",
-    "decided_stale",
     "note_only",
     "historical_negative",
     "candidate",
@@ -39,35 +38,16 @@ def parse_conflicts_list(value: Any) -> list[str]:
     return []
 
 
-def parse_date(value: Any) -> date | None:
-    """YYYY-MM-DD 문자열을 date로. 빈 값/잘못된 포맷은 None."""
-    if value is None or value == "":
-        return None
-    if isinstance(value, date):
-        return value
-    try:
-        return date.fromisoformat(str(value).strip())
-    except (ValueError, TypeError):
-        return None
-
-
-def classify_authority(hit: dict, today: date) -> str:
-    """단일 hit의 authority_level. parent_plan §6.3."""
+def classify_authority(hit: dict) -> str:
+    """단일 hit의 authority_level. parent_plan §6.3 (Phase 3.5 갱신)."""
     path = hit["path"]
     if path.startswith("00 Inbox/"):
         return "excluded"
     if path.startswith("99 Archive/"):
         return "historical_negative"
-    if not hit["human_reviewed"]:
+    if not hit["canonical"]:
         return "note_only"
     if hit["type"] == "decision":
-        if hit["status"] != "decided":
-            return "decided_stale"
-        if hit["decision_status"] == "superseded":
-            return "decided_stale"
-        revisit = parse_date(hit["metadata"].get("revisit_when"))
-        if revisit and revisit < today:
-            return "decided_stale"
         return "decided_applicable"
     if hit["type"] == "note":
         return "note_only"
@@ -101,8 +81,6 @@ def recommend_action(buckets: dict[str, list]) -> str:
         return "ask_user"
     if buckets.get("decided_applicable"):
         return "proceed"
-    if buckets.get("decided_stale"):
-        return "ask_confirmation"
     if buckets.get("note_only"):
         return "answer_with_citation"
     if buckets.get("historical_negative"):
@@ -112,11 +90,11 @@ def recommend_action(buckets: dict[str, list]) -> str:
     return "ask_user"
 
 
-def _bucketize(hits: Iterable[dict], today: date) -> dict[str, list[dict]]:
+def _bucketize(hits: Iterable[dict]) -> dict[str, list[dict]]:
     """hit 리스트 → {authority_level: [hit, ...]}. excluded는 버림."""
     buckets: dict[str, list[dict]] = {}
     for h in hits:
-        level = classify_authority(h, today)
+        level = classify_authority(h)
         if level == "excluded":
             continue
         buckets.setdefault(level, []).append(h)
@@ -170,7 +148,7 @@ def _build_basis(buckets: dict[str, list[dict]], max_results: int) -> list[dict]
 def _compose_messages(
     top_level: str, pairs: set[frozenset[str]]
 ) -> tuple[list[str], list[str]]:
-    """§2.1 warnings/next_steps 조립 표."""
+    """warnings/next_steps 조립 (Phase 3.5 갱신: decided_stale 분기 제거)."""
     warnings: list[str] = []
     next_steps: list[str] = []
     if top_level == "none":
@@ -186,11 +164,6 @@ def _compose_messages(
         )
     elif top_level == "decided_applicable":
         next_steps.append("Follow the cited decision")
-    elif top_level == "decided_stale":
-        warnings.append(
-            "Only stale decisions match (status≠decided / superseded / revisit_when expired)"
-        )
-        next_steps.append("Confirm with user whether the stale decision is still valid")
     elif top_level == "note_only":
         next_steps.append("Cite the note; no authoritative decision binds the action")
     elif top_level == "historical_negative":
@@ -207,14 +180,10 @@ def advise(
     question: str,
     *,
     max_results: int = 5,
-    today: date | None = None,
 ) -> dict:
     """질문 → 권위 판정 + 추천 액션."""
-    if today is None:
-        today = date.today()
-
     hits = search(conn, question, max_results=15)
-    buckets = _bucketize(hits, today)
+    buckets = _bucketize(hits)
     pairs = _promote_conflicts(buckets)
 
     top_level = aggregate_authority(buckets)

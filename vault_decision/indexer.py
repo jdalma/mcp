@@ -107,12 +107,7 @@ CREATE TABLE IF NOT EXISTS docs (
   path TEXT UNIQUE NOT NULL,
   title TEXT NOT NULL,
   type TEXT,
-  status TEXT,
-  decision_status TEXT,
-  human_reviewed INTEGER,
-  decided_on TEXT,
-  revisit_when TEXT,
-  superseded_by TEXT,
+  canonical INTEGER,
   conflicts_with TEXT,
   context TEXT,
   body TEXT NOT NULL,
@@ -233,12 +228,7 @@ def build_index(
             "path": rel,
             "title": title,
             "type": meta.get("type") or "unknown",
-            "status": _str_or_empty(meta.get("status")) or None,
-            "decision_status": _str_or_empty(meta.get("decision_status")) or None,
-            "human_reviewed": _to_bool_int(meta.get("human_reviewed")),
-            "decided_on": _str_or_empty(meta.get("decided_on")) or None,
-            "revisit_when": _str_or_empty(meta.get("revisit_when")) or None,
-            "superseded_by": _str_or_empty(meta.get("superseded_by")) or None,
+            "canonical": _to_bool_int(meta.get("canonical")),
             "conflicts_with": _str_or_empty(meta.get("conflicts_with")) or None,
             "context": context or None,
             "body": body,
@@ -278,20 +268,15 @@ def build_index(
             conn.execute(
                 """
                 INSERT INTO docs (
-                  path, title, type, status, decision_status, human_reviewed,
-                  decided_on, revisit_when, superseded_by, conflicts_with,
+                  path, title, type, canonical, conflicts_with,
                   context, body, mtime, embedding, path_role, metadata_json
                 ) VALUES (
-                  :path, :title, :type, :status, :decision_status, :human_reviewed,
-                  :decided_on, :revisit_when, :superseded_by, :conflicts_with,
+                  :path, :title, :type, :canonical, :conflicts_with,
                   :context, :body, :mtime, :embedding, :path_role, :metadata_json
                 )
                 ON CONFLICT(path) DO UPDATE SET
-                  title=excluded.title, type=excluded.type, status=excluded.status,
-                  decision_status=excluded.decision_status,
-                  human_reviewed=excluded.human_reviewed,
-                  decided_on=excluded.decided_on, revisit_when=excluded.revisit_when,
-                  superseded_by=excluded.superseded_by,
+                  title=excluded.title, type=excluded.type,
+                  canonical=excluded.canonical,
                   conflicts_with=excluded.conflicts_with,
                   context=excluded.context, body=excluded.body, mtime=excluded.mtime,
                   embedding=excluded.embedding, path_role=excluded.path_role,
@@ -314,13 +299,13 @@ def stats(conn: sqlite3.Connection) -> dict:
     by_type = dict(
         conn.execute("SELECT type, count(*) FROM docs GROUP BY type").fetchall()
     )
-    by_status = dict(
-        conn.execute("SELECT status, count(*) FROM docs GROUP BY status").fetchall()
+    by_canonical = dict(
+        conn.execute("SELECT canonical, count(*) FROM docs GROUP BY canonical").fetchall()
     )
     by_role = dict(
         conn.execute("SELECT path_role, count(*) FROM docs GROUP BY path_role").fetchall()
     )
-    return {"total": total, "by_type": by_type, "by_status": by_status, "by_role": by_role}
+    return {"total": total, "by_type": by_type, "by_canonical": by_canonical, "by_role": by_role}
 
 
 def main() -> None:

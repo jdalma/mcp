@@ -48,7 +48,7 @@ def _render_query_markdown(hits: list[dict]) -> str:
         lines.append(f"## #{i} {h['title']}")
         lines.append(f"- path: `{h['path']}`")
         lines.append(
-            f"- role: {h['path_role']}, type: {h['type']}, reviewed: {h['human_reviewed']}"
+            f"- role: {h['path_role']}, type: {h['type']}, canonical: {h['canonical']}"
         )
         rb = h["rank_bm25"] if h["rank_bm25"] is not None else "-"
         re_ = h["rank_embedding"] if h["rank_embedding"] is not None else "-"

@@ -1,14 +1,9 @@
-"""Phase 2 P2-1: advisor 순수 함수 단위 테스트.
+"""Phase 3.5 P35-1: advisor 순수 함수 단위 테스트 (canonical 단일 게이트).
 
-advise() 전체 path(searcher + bge-m3)는 통합 게이트(P2-4/5/6)의 책임.
-여기서는 classify_authority / detect_conflicts / aggregate_authority /
-recommend_action / _bucketize / _promote_conflicts / _build_basis /
-_compose_messages만 직접 호출.
+advise() 전체 path(searcher + bge-m3)는 통합 게이트(P35-5/6)의 책임.
 """
 
 from __future__ import annotations
-
-from datetime import date
 
 import pytest
 
@@ -22,11 +17,8 @@ from vault_decision.advisor import (
     classify_authority,
     detect_conflicts,
     parse_conflicts_list,
-    parse_date,
     recommend_action,
 )
-
-TODAY = date(2026, 5, 14)
 
 
 def _hit(
@@ -34,9 +26,7 @@ def _hit(
     path: str,
     title: str = "T",
     type: str | None = "decision",
-    status: str | None = "decided",
-    decision_status: str | None = None,
-    human_reviewed: bool = True,
+    canonical: bool = True,
     body: str = "body",
     metadata: dict | None = None,
 ) -> dict:
@@ -44,9 +34,7 @@ def _hit(
         "path": path,
         "title": title,
         "type": type,
-        "status": status,
-        "decision_status": decision_status,
-        "human_reviewed": human_reviewed,
+        "canonical": canonical,
         "path_role": "active_decision",
         "context": None,
         "body": body,
@@ -78,91 +66,38 @@ def test_parse_conflicts_list(value, expected):
     assert parse_conflicts_list(value) == expected
 
 
-# --- parse_date ---
-
-
-def test_parse_date_valid():
-    assert parse_date("2026-05-14") == date(2026, 5, 14)
-
-
-@pytest.mark.parametrize("value", [None, "", "not-a-date", "2026/05/14", 12345])
-def test_parse_date_invalid(value):
-    assert parse_date(value) is None
-
-
-def test_parse_date_passthrough_date_object():
-    d = date(2020, 1, 1)
-    assert parse_date(d) == d
-
-
-# --- classify_authority (단일 hit 7 케이스) ---
+# --- classify_authority (Phase 3.5 단순화 — 5 케이스) ---
 
 
 def test_classify_decided_applicable():
-    h = _hit(
-        path="01 Notes/Decision - X.md",
-        type="decision",
-        status="decided",
-        metadata={"revisit_when": "2099-01-01"},
-    )
-    assert classify_authority(h, TODAY) == "decided_applicable"
+    h = _hit(path="01 Notes/Decision - X.md", type="decision", canonical=True)
+    assert classify_authority(h) == "decided_applicable"
 
 
-def test_classify_decided_stale_by_revisit_expired():
-    h = _hit(
-        path="01 Notes/Decision - X.md",
-        type="decision",
-        status="decided",
-        metadata={"revisit_when": "2020-01-01"},
-    )
-    assert classify_authority(h, TODAY) == "decided_stale"
+def test_classify_note_only_by_type_note():
+    h = _hit(path="01 Notes/X.md", type="note", canonical=True)
+    assert classify_authority(h) == "note_only"
 
 
-def test_classify_decided_stale_by_superseded():
-    h = _hit(
-        path="01 Notes/Decision - X.md",
-        type="decision",
-        status="decided",
-        decision_status="superseded",
-    )
-    assert classify_authority(h, TODAY) == "decided_stale"
-
-
-def test_classify_decided_stale_by_status_not_decided():
-    h = _hit(
-        path="01 Notes/Decision - X.md", type="decision", status="draft"
-    )
-    assert classify_authority(h, TODAY) == "decided_stale"
-
-
-def test_classify_note_only():
-    h = _hit(path="01 Notes/X.md", type="note", status=None)
-    assert classify_authority(h, TODAY) == "note_only"
+def test_classify_note_only_when_canonical_false():
+    # type=decision이지만 canonical=false → note_only로 강등
+    h = _hit(path="01 Notes/Decision - X.md", type="decision", canonical=False)
+    assert classify_authority(h) == "note_only"
 
 
 def test_classify_historical_negative():
-    h = _hit(path="99 Archive/Old.md", type="decision")
-    assert classify_authority(h, TODAY) == "historical_negative"
+    h = _hit(path="99 Archive/Old.md", type="decision", canonical=True)
+    assert classify_authority(h) == "historical_negative"
 
 
 def test_classify_excluded_inbox():
-    h = _hit(path="00 Inbox/Draft.md", type="decision")
-    assert classify_authority(h, TODAY) == "excluded"
-
-
-def test_classify_human_reviewed_false_demoted_to_note_only():
-    h = _hit(
-        path="01 Notes/Decision - X.md",
-        type="decision",
-        status="decided",
-        human_reviewed=False,
-    )
-    assert classify_authority(h, TODAY) == "note_only"
+    h = _hit(path="00 Inbox/Draft.md", type="decision", canonical=True)
+    assert classify_authority(h) == "excluded"
 
 
 def test_classify_candidate_fallback_on_unknown_type():
-    h = _hit(path="01 Notes/X.md", type="unknown", status=None)
-    assert classify_authority(h, TODAY) == "candidate"
+    h = _hit(path="01 Notes/X.md", type="unknown", canonical=True)
+    assert classify_authority(h) == "candidate"
 
 
 # --- detect_conflicts (양방향 vs 단방향) ---
@@ -171,8 +106,7 @@ def test_classify_candidate_fallback_on_unknown_type():
 def test_detect_conflicts_bilateral():
     a = _hit(path="01 Notes/Decision - A.md", title="A", metadata={"conflicts_with": ["B"]})
     b = _hit(path="01 Notes/Decision - B.md", title="B", metadata={"conflicts_with": ["A"]})
-    pairs = detect_conflicts([a, b])
-    assert pairs == {frozenset({"A", "B"})}
+    assert detect_conflicts([a, b]) == {frozenset({"A", "B"})}
 
 
 def test_detect_conflicts_unilateral_ignored():
@@ -184,11 +118,10 @@ def test_detect_conflicts_unilateral_ignored():
 def test_detect_conflicts_dedup_with_frozenset():
     a = _hit(path="01 Notes/Decision - A.md", title="A", metadata={"conflicts_with": ["B"]})
     b = _hit(path="01 Notes/Decision - B.md", title="B", metadata={"conflicts_with": ["A"]})
-    pairs = detect_conflicts([a, b])
-    assert len(pairs) == 1
+    assert len(detect_conflicts([a, b])) == 1
 
 
-# --- aggregate_authority + recommend_action (4 aggregation 케이스) ---
+# --- aggregate_authority + recommend_action (Phase 3.5 — 4 케이스) ---
 
 
 def test_aggregate_and_action_decided_conflicting():
@@ -197,10 +130,10 @@ def test_aggregate_and_action_decided_conflicting():
     assert recommend_action(buckets) == "ask_user"
 
 
-def test_aggregate_and_action_mixed_applicable_and_stale():
+def test_aggregate_and_action_applicable_with_note_only_present():
     buckets = {
         "decided_applicable": [object()],
-        "decided_stale": [object(), object()],
+        "note_only": [object(), object()],
     }
     assert aggregate_authority(buckets) == "decided_applicable"
     assert recommend_action(buckets) == "proceed"
@@ -217,11 +150,16 @@ def test_aggregate_and_action_candidate_only():
     assert recommend_action(buckets) == "ask_user"
 
 
+def test_aggregate_and_action_note_only():
+    buckets = {"note_only": [object()]}
+    assert aggregate_authority(buckets) == "note_only"
+    assert recommend_action(buckets) == "answer_with_citation"
+
+
 def test_priority_constant_matches_action_branches():
     assert AUTHORITY_PRIORITY == (
         "decided_conflicting",
         "decided_applicable",
-        "decided_stale",
         "note_only",
         "historical_negative",
         "candidate",
@@ -236,7 +174,7 @@ def test_bucketize_drops_excluded():
         _hit(path="00 Inbox/Z.md"),
         _hit(path="01 Notes/Decision - X.md", title="X"),
     ]
-    buckets = _bucketize(hits, TODAY)
+    buckets = _bucketize(hits)
     assert "excluded" not in buckets
     assert len(buckets.get("decided_applicable", [])) == 1
 
@@ -304,7 +242,6 @@ def test_build_basis_excerpt_long_body_appends_ellipsis():
     [
         ("none", "No matching vault entries", "Refine the question"),
         ("decided_applicable", None, "Follow the cited decision"),
-        ("decided_stale", "Only stale decisions match", "Confirm with user whether"),
         ("note_only", None, "Cite the note"),
         ("historical_negative", "archived (rejected) pattern", "Do not proceed"),
         ("candidate", "Classification fallback", "Inspect the file directly"),
@@ -325,3 +262,14 @@ def test_compose_messages_conflicting_includes_pair_list():
     assert any("Found 2 conflicting" in w for w in warnings)
     assert any("A <-> B" in w or "C <-> D" in w for w in warnings)
     assert any("Resolve the conflict" in s for s in next_steps)
+
+
+def test_advise_signature_has_no_today_argument():
+    """advise() 시그니처에서 today 인자가 사라졌는지 확인 (Phase 3.5)."""
+    from inspect import signature
+
+    from vault_decision.advisor import advise
+
+    params = signature(advise).parameters
+    assert "today" not in params
+    assert list(params.keys()) == ["conn", "question", "max_results"]

@@ -112,9 +112,7 @@ def _row_to_result(
         "path": row["path"],
         "title": row["title"],
         "type": row["type"],
-        "status": row["status"],
-        "decision_status": row["decision_status"],
-        "human_reviewed": bool(row["human_reviewed"]),
+        "canonical": bool(row["canonical"]),
         "path_role": row["path_role"] or "unknown",
         "context": row["context"],
         "body": row["body"],
@@ -206,7 +204,7 @@ def main() -> None:
         re_ = r["rank_embedding"]
         print(
             f"#{i} {r['title']}  "
-            f"[role={r['path_role']} type={r['type']} reviewed={r['human_reviewed']}]"
+            f"[role={r['path_role']} type={r['type']} canonical={r['canonical']}]"
         )
         print(f"     path={r['path']}")
         print(
