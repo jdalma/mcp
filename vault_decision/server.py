@@ -11,6 +11,7 @@ from vault_decision.advisor import advise as advise_fn
 from vault_decision.config import get_index_path, get_vault_path
 from vault_decision.indexer import build_index, open_index
 from vault_decision.indexer import stats as stats_fn
+from vault_decision.lint import lint as lint_fn
 from vault_decision.searcher import search as search_fn
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -90,8 +91,8 @@ def read_decision(file_name: str) -> str:
 
 @mcp.tool()
 def lint() -> dict:
-    """Phase 2 placeholder. 본격 구현은 Phase 3."""
-    return {"issues": [], "summary": "lint not yet implemented (Phase 3)"}
+    """3룰(asymmetric_conflict / stale_decision / superseded_dangling) 위반 보고."""
+    return lint_fn(_get_conn())
 
 
 @mcp.tool()
