@@ -59,6 +59,13 @@ related:
 | FR-7 | `revisit_when` 만료 결정 감지                                                                                                           | P1       |
 | FR-8 | `## Superseded by` 본문 있으나 frontmatter `decision_status` 비어있는 경우 감지                                                          | P2       |
 
+> **Phase 3.5 (2026-05-17) 갱신**:
+> - FR-2의 `decided_stale` 등급 폐기 (만료 + status/decision_status 분기 모두 제거).
+> - FR-5의 `human_reviewed`는 단일 게이트 `canonical`로 이름·의미 재정의.
+> - FR-7 (revisit_when 만료) 폐기 — 지식에 만료 개념 미도입.
+> - FR-8 (superseded_dangling) 폐기 — `decision_status`/`superseded_by` 필드 자체 제거, superseded는 `99 Archive/` 이동 컨벤션.
+> - 최종 FR: 1, 2(수정), 3, 4, 5(canonical로), 6 만 유효.
+
 ### 3.2 비기능 요구사항
 
 | ID    | 요구사항                                                                            |
@@ -142,6 +149,17 @@ context: "한 줄 요약"             # 검색 품질 향상용
 ---
 ```
 
+> **Phase 3.5 (2026-05-17) 갱신** — 9필드 → 4필드 단순화:
+> ```yaml
+> ---
+> type: decision | note | source | moc    # 필수
+> canonical: true | false                  # 단일 게이트 (의사결정 활용 자격)
+> conflicts_with: ["Decision - ..."]       # 선택
+> context: "한 줄 요약"                    # 선택
+> ---
+> ```
+> 폐기된 필드 5개와 흡수 경로: `human_reviewed` → `canonical` 이름 재정의 / `status` → `canonical=false`로 / `decision_status` → `99 Archive/` 이동 컨벤션 / `revisit_when` → 만료 개념 폐기 / `decided_on` → 코드 read 0회 dead weight 제거 / `superseded_by` → 본문 헤딩 `## Superseded by [[X]]` (코드 분기 안 함).
+
 ### 6.3 권위 판정 룰
 
 ```
@@ -155,6 +173,18 @@ fresh decisions 중 conflicts_with 위반  → decided_conflicting
 type=note AND human_reviewed=true      → note_only
 path startswith "99 Archive/"          → historical_negative
 ```
+
+> **Phase 3.5 (2026-05-17) 갱신** — 룰 단순화:
+> ```
+> path startswith "00 Inbox/"   → excluded
+> path startswith "99 Archive/"  → historical_negative → do_not_proceed
+> canonical != true              → note_only          → answer_with_citation
+> type == decision               → decided_applicable → proceed
+> type == note                   → note_only          → answer_with_citation
+> fallback                       → candidate          → ask_user
+> + decided_applicable 중 양방향 conflicts_with 위반 → decided_conflicting → ask_user
+> ```
+> `decided_stale` 등급 폐기 (만료/status/decision_status 분기 모두 제거됨).
 
 ## 7. SQLite 스키마
 
@@ -206,6 +236,21 @@ CREATE TRIGGER docs_au AFTER UPDATE ON docs BEGIN
   VALUES (new.rowid, new.title, new.context, new.body);
 END;
 ```
+
+> **Phase 3.5 (2026-05-17) 갱신** — docs 테이블 16컬럼 → 12컬럼:
+> ```sql
+> CREATE TABLE docs (
+>   rowid INTEGER PRIMARY KEY,
+>   path TEXT UNIQUE NOT NULL, title TEXT NOT NULL,
+>   type TEXT, canonical INTEGER,
+>   conflicts_with TEXT, context TEXT, body TEXT NOT NULL,
+>   mtime REAL NOT NULL, embedding BLOB,
+>   path_role TEXT, metadata_json TEXT
+> );
+> ```
+> 제거된 컬럼 6개: `status`, `decision_status`, `human_reviewed`, `decided_on`, `revisit_when`, `superseded_by`.
+> 신규 컬럼: `canonical INTEGER` (단일 게이트, 0/1).
+> 트리거 3개와 FTS5 가상 테이블은 변경 없음.
 
 검색 쿼리 예:
 ```sql
@@ -268,7 +313,7 @@ vault-decision-mcp/
 2. 새 `vault_decision/` 패키지 작성. `pyproject.toml` 의존성 갱신.
 3. **모델 사전 다운로드**: `python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')"`. 첫 launchctl 기동 전에 수동 실행. 실패 시 `pip install torch sentence-transformers` 단계 검증 후 재시도. macOS arm64 wheel 가용성 확인 필수.
 4. `~/.cache/vault-decision-mcp/index.db` 신규 생성. 기존 `.chroma/` 삭제 가능.
-5. 기존 vault 파일에 `human_reviewed` 필드 일괄 마이그레이션 (별도 스크립트 1회).
+5. 기존 vault 파일에 `human_reviewed` 필드 일괄 마이그레이션 (별도 스크립트 1회). **Phase 3.5 (2026-05-17) 갱신**: 필드명 `human_reviewed` → `canonical` 변경. 동일 boolean 의미지만 이름·의미가 "사용자 검수 여부"에서 "의사결정 활용 자격"으로 재정의됨.
 6. `~/.claude.json` 또는 `mcp.json`에서 서버 명령 갱신.
 7. **launchctl plist 환경변수**: plist의 `EnvironmentVariables` dict에 다음 키 명시(launchd context는 shell env를 상속하지 않음).
    ```xml
