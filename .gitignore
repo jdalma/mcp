@@ -6,3 +6,5 @@ __pycache__/
 .omx/
 .DS_Store
 *.excalidraw
+.claude/handoff/
+!.claude/handoff/.gitkeep
