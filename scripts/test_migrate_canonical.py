@@ -10,10 +10,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import migrate_canonical  # noqa: E402
 from migrate_canonical import (  # noqa: E402
     classify_canonical,
     patch_canonical,
     read_frontmatter_meta,
+    should_block_for_dirty_vault,
 )
 
 
@@ -160,3 +162,27 @@ def test_classify_source_dir_false():
 
 def test_classify_moc_dir_false():
     assert classify_canonical("02 Maps/Index.md", {}) is False
+
+
+# --- dirty vault guard ---
+
+
+def test_dirty_git_repo_blocks_by_default(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setattr(migrate_canonical, "has_uncommitted_changes", lambda vault: True)
+
+    assert should_block_for_dirty_vault(tmp_path, allow_dirty=False) is True
+
+
+def test_dirty_git_repo_allowed_when_explicit(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setattr(migrate_canonical, "has_uncommitted_changes", lambda vault: True)
+
+    assert should_block_for_dirty_vault(tmp_path, allow_dirty=True) is False
+
+
+def test_clean_git_repo_does_not_block(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setattr(migrate_canonical, "has_uncommitted_changes", lambda vault: False)
+
+    assert should_block_for_dirty_vault(tmp_path, allow_dirty=False) is False

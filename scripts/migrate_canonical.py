@@ -3,6 +3,7 @@
 
 확실(true) / 불확실(false) 양방향 자동 분류. 사용자 검토 0회.
 dry-run 기본, --apply 플래그로 실 변경.
+dirty git repo는 기본 차단, 로컬 dogfooding은 --allow-dirty로 명시 우회.
 
 분류 룰:
 - 01 Notes/Decision - *.md + status=decided → canonical: true
@@ -62,6 +63,11 @@ def has_uncommitted_changes(vault: Path) -> bool:
         return False
 
 
+def should_block_for_dirty_vault(vault: Path, *, allow_dirty: bool) -> bool:
+    """git repo가 dirty이면 기본 차단. --allow-dirty는 로컬 dogfooding 전용 우회."""
+    return (vault / ".git").exists() and not allow_dirty and has_uncommitted_changes(vault)
+
+
 def read_frontmatter_meta(text: str) -> tuple[dict | None, bool]:
     """frontmatter를 읽기 전용으로 파싱.
 
@@ -113,6 +119,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="migrate_canonical")
     parser.add_argument("--apply", action="store_true",
                         help="실제로 파일 수정 (기본은 dry-run)")
+    parser.add_argument("--allow-dirty", action="store_true",
+                        help="vault git 상태가 dirty여도 진행 (로컬 dogfooding 전용)")
     parser.add_argument("--vault", default=os.environ.get("VAULT_PATH"))
     args = parser.parse_args()
 
@@ -127,9 +135,12 @@ def main() -> int:
 
     if not (vault / ".git").exists():
         print("WARNING: vault is not a git repo. 백업 권장.", file=sys.stderr)
-    elif has_uncommitted_changes(vault):
+    elif should_block_for_dirty_vault(vault, allow_dirty=args.allow_dirty):
         print("ERROR: vault has uncommitted changes. Commit/stash first.", file=sys.stderr)
         return 3
+    elif args.allow_dirty and has_uncommitted_changes(vault):
+        print("WARNING: vault has uncommitted changes; proceeding due to --allow-dirty.",
+              file=sys.stderr)
 
     targets = find_targets(vault)
     summary = {
