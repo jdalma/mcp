@@ -62,6 +62,17 @@ def _render_query_markdown(hits: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _resolve_vault_file(vault, file_name: str):
+    """Resolve a user-supplied vault path without allowing escapes outside vault."""
+    vault_root = vault.resolve()
+    full = (vault_root / file_name).resolve(strict=False)
+    try:
+        full.relative_to(vault_root)
+    except ValueError:
+        return None
+    return full
+
+
 @mcp.tool()
 def advise(question: str, max_results: int = 5) -> dict:
     """질문에 대해 vault의 권위 결정을 찾아 분류하고 추천 액션을 산출."""
@@ -77,21 +88,22 @@ def query(question: str, max_results: int = 5) -> str:
 
 @mcp.tool()
 def read_decision(file_name: str) -> str:
-    """Vault에서 파일 본문을 반환. 없으면 'File not found: ...' 문자열 (예외 X).
-
-    parent_plan NFR-2: path-escape 가드 없음. 단일 사용자 stdio 가정.
-    """
+    """Vault에서 파일 본문을 반환. 없으면 'File not found: ...' 문자열 (예외 X)."""
     _ = _get_conn()  # lazy init 보장
     vault = get_vault_path()
-    full = vault / file_name
+    full = _resolve_vault_file(vault, file_name)
+    if full is None:
+        return f"Invalid file path: {file_name}"
     if not full.exists():
         return f"File not found: {file_name}"
+    if not full.is_file():
+        return f"Invalid file path: {file_name}"
     return full.read_text(encoding="utf-8")
 
 
 @mcp.tool()
 def lint() -> dict:
-    """3룰(asymmetric_conflict / stale_decision / superseded_dangling) 위반 보고."""
+    """asymmetric_conflict 위반 보고."""
     return lint_fn(_get_conn())
 
 
