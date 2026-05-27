@@ -101,3 +101,55 @@ launchctl unload ~/Library/LaunchAgents/com.vault-decision-mcp.plist
 | `VAULT_EMBEDDING_MODEL` | `snunlp/KR-SBERT-V40K-klueNLI-augSTS` | embedding 모델 |
 | `MCP_HOST` | `127.0.0.1` | 서버 바인딩 주소 |
 | `MCP_PORT` | `8765` | 서버 포트 |
+
+### Claude Code 훅 연동 — Vault Decision Gate
+
+사용자 질문이 "의사결정" 성격이면 응답 전에 자동으로 vault를 조회하도록 강제하는 `UserPromptSubmit` 훅 패턴이다. 정확도가 핵심이라 키워드 매칭을 보수적으로 잡아 두었다.
+
+#### 파일 위치
+
+| 경로 | 역할 |
+|------|------|
+| `~/.claude/hooks/shared/vault-decision-patterns.mjs` | 결정 질문 판별 정규식 (`DECISION_PATTERNS` / `NON_DECISION_PATTERNS`) |
+| `~/.claude/hooks/user-prompt-submit/vault-decision-inject.mjs` | 매칭 시 `additionalContext`로 vault 조회 지시 주입 |
+
+#### `~/.claude/settings.json` 등록
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/user-prompt-submit/vault-decision-inject.mjs\"" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### 동작 조건
+
+훅은 아래 셋이 모두 참일 때만 vault gate를 발동한다. 하나라도 빠지면 조용히 통과한다.
+
+1. 사용자 메시지가 `DECISION_PATTERNS`에 매칭되고 `NON_DECISION_PATTERNS`에는 매칭되지 않음
+2. `~/.claude.json`의 `mcpServers["vault-decision"].command`가 존재 (stdio MCP 설정)
+3. `~/.cache/vault-decision-mcp/index.db` (또는 `$VAULT_DECISION_INDEX`)가 존재
+
+#### 임시 비활성화
+
+```bash
+VAULT_DECISION_GATE=false claude  # 또는 0
+```
+
+#### 패턴 튜닝 가이드
+
+`DECISION_PATTERNS`는 명사형 단일 키워드(`구현`, `설계`, `architecture`)만으로는 매칭하지 않는다. 단순 코드 작업 질문에서 false positive가 폭증하기 때문이다. 새 키워드를 추가할 때는 다음 중 하나의 형태를 따른다:
+
+- 명시적 결정 동사: `decide`, `결정해야`, `선택할지`, `택할지`
+- "선택지 + 의문형" 조합: `(approach|architecture|설계|방향) ... (어떻게|할까|좋을까|recommend)`
+- 명시적 비교: `vs`, `versus`, `아니면`
+- "X를 추천"류: `(library|framework|sdk) ... (recommend|추천|선택)`
+
+수정 후에는 false positive/true positive 케이스를 둘 다 노드 스크립트로 회귀 검증한 뒤 반영한다.
